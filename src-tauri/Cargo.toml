@@ -1,6 +1,6 @@
 [package]
 name = "spotify-orbit"
-version = "2.1.0"
+version = "2.2.0"
 description = "Sfondo animato per Windows che reagisce alla musica"
 edition = "2021"
 publish = false

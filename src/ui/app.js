@@ -11,9 +11,7 @@ const CID = Math.random().toString(36).slice(2);        // identifica questa pag
 const MON = (location.search.match(/[?&]mon=(\d+)/) || [])[1];     // indice del monitor (solo per lo sfondo del desktop)
 let paused = false;
 let monPrimary = true;                                   // questo sfondo sta sul monitor principale? (lo chiede init)
-/* schermi in più con «solo lo sfondo»: niente copertina, testi, widget né orologio */
-let bgo = false;                                         // valore attuale di bgOnly(), aggiornato da applyCfg
-const bgOnly = () => WALL && MON !== undefined && !monPrimary && cfg.monitor === 'all' && !!cfg.extraBgOnly;
+let prevLyrics = null;                                   // per scaricare i testi quando vengono riaccesi
 
 /* ====================================================================== *
  *  Impostazioni
@@ -28,19 +26,32 @@ const DEFAULTS = {
   pulseArt: true, rotateArt: false, showStars: true, showParticles: true, showShocks: true, drift: true,
   monitor: '0', fps: '60', pauseCovered: true, onlySpotify: false, autostart: false,
   wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wStyle: 'glass', wFont: 'default', wUpper: false, wNumbers: false,
-  wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', extraBgOnly: false,
+  wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', showCenter: true,
+  secCustom: false, secondary: {},
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
   profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
 };
 let cfg = { ...DEFAULTS };
 /* Un profilo salva solo l'aspetto: le scelte legate al PC (monitor, avvio con Windows…) restano fuori. */
-const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'extraBgOnly']);
-/* Con «tutti i monitor» ogni schermo può avere il suo profilo: la pagina dello sfondo lo applica sopra le impostazioni. */
+const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary']);
+/* Schermi secondari (con «tutti i monitor» e «Personalizza»): cosa mostrare e dove. Di base solo lo sfondo. */
+const SEC_DEFAULTS = {
+  showCenter: false, ringSize: 100, artX: 0, artY: 0, captionSize: 100,
+  showLyrics: false, layout: 'classic', lyricsSize: 100,
+  sideWidget: 'none', qLayout: 'list', wStyle: 'glass', wCount: 4, wScale: 100, wSide: 'left', wVert: 'bottom', wX: 0, wY: 0,
+  showClock: false, showDate: false, clockPos: 'tr', clockSize: 100,
+  spectrumBottom: false, specHeight: 100,
+};
+const secOf = (c) => ({ ...SEC_DEFAULTS, ...(c.secondary || {}) });
+/* Con «tutti i monitor» ogni schermo può avere il suo profilo: la pagina dello sfondo lo applica sopra le impostazioni;
+ * sugli schermi secondari personalizzati valgono poi le scelte della sezione «Schermi secondari». */
 function effective(c) {
   if (!WALL || MON === undefined || c.monitor !== 'all') return c;
   const name = (c.monitorProfiles || {})[MON];
   const p = name && (Array.isArray(c.profiles) ? c.profiles : []).find((x) => x && x.name === name);
-  return p && p.v ? { ...c, ...p.v } : c;
+  let r = p && p.v ? { ...c, ...p.v } : c;
+  if (!monPrimary && c.secCustom) r = { ...r, ...secOf(c) };
+  return r;
 }
 
 const SCHEMA = [
@@ -96,7 +107,8 @@ const SCHEMA = [
     { k: 'clockSize', type: 'range', label: 'Dimensione', min: 60, max: 220, step: 10, unit: '%' },
   ] },
   { t: 'Brano e testi', items: [
-    { k: 'showCaption', type: 'toggle', label: 'Titolo e artista sotto la copertina' },
+    { k: 'showCenter', type: 'toggle', label: 'Copertina, anello e titolo al centro' },
+    { k: 'showCaption', type: 'toggle', label: 'Titolo e artista sotto la copertina', when: (c) => c.showCenter },
     { k: 'captionSize', type: 'range', label: 'Dimensione titolo e artista', min: 60, max: 200, step: 5, unit: '%', when: (c) => c.showCaption },
     { k: 'showProgress', type: 'toggle', label: 'Barra di avanzamento' },
     { k: 'showLyrics', type: 'toggle', label: 'Testi sincronizzati' },
@@ -124,7 +136,6 @@ const SCHEMA = [
   { t: 'Coda di Spotify', custom: 'spotify' },
   { t: 'Sfondo del desktop', items: [
     { k: 'monitor', type: 'select', label: 'Monitor', opts: [['0', 'Principale']] },
-    { k: 'extraBgOnly', type: 'toggle', label: 'Sugli altri schermi solo lo sfondo (niente copertina, testi e widget)', when: (c) => c.monitor === 'all' },
     { k: 'fps', type: 'select', label: 'Fluidità', opts: [['30', '30 FPS (più leggero)'], ['60', '60 FPS']] },
     { k: 'pauseCovered', type: 'toggle', label: 'Pausa quando una finestra copre il desktop' },
     { k: 'onlySpotify', type: 'toggle', label: 'Ascolta solo Spotify' },
@@ -132,6 +143,31 @@ const SCHEMA = [
     { k: 'checkUpdates', type: 'toggle', label: 'Avvisami quando esce una nuova versione' },
   ] },
 ];
+
+/* sezione «Schermi secondari»: le stesse voci del principale, salvate a parte in cfg.secondary («secondary.chiave») */
+(() => {
+  const base = (k) => { for (const s of SCHEMA) for (const it of s.items || []) if (it.k === k) return it; throw new Error(k); };
+  const on = (c) => c.monitor === 'all' && !!c.secCustom;
+  const wid = (s) => s.sideWidget !== 'none', side = (s) => ['cards', 'timeline', 'queue'].includes(s.sideWidget);
+  const S = (k, label, w) => ({ ...base(k), k: 'secondary.' + k, label: label || base(k).label, when: (c) => on(c) && (!w || !!w(secOf(c))) });
+  SCHEMA.push({ t: 'Schermi secondari', when: (c) => c.monitor === 'all', items: [
+    { k: 'secCustom', type: 'toggle', label: 'Scegli cosa mostrare sugli schermi secondari (spento: uguali al principale)' },
+    S('showCenter'),
+    S('ringSize', null, (s) => s.showCenter), S('artX', null, (s) => s.showCenter), S('artY', null, (s) => s.showCenter),
+    S('captionSize', null, (s) => s.showCenter),
+    S('showLyrics'), S('layout', 'Posizione dei testi', (s) => s.showLyrics), S('lyricsSize', null, (s) => s.showLyrics),
+    S('sideWidget', 'Brani recenti e coda'),
+    S('qLayout', null, (s) => s.sideWidget === 'queue'), S('wStyle', null, (s) => s.sideWidget === 'cards' || s.sideWidget === 'queue'),
+    S('wCount', null, wid), S('wScale', 'Dimensione dei brani', wid), S('wSide', null, side), S('wVert', null, side),
+    S('wX', 'Sposta i brani in orizzontale', wid), S('wY', 'Sposta i brani in verticale', wid),
+    S('showClock'), S('showDate'),
+    S('clockPos', 'Posizione di ora e data', (s) => s.showClock || s.showDate), S('clockSize', 'Dimensione di ora e data', (s) => s.showClock || s.showDate),
+    S('spectrumBottom'), S('specHeight', null, (s) => s.spectrumBottom),
+  ].map((it) => (it.k === 'secCustom' ? { ...it, when: (c) => c.monitor === 'all' } : it)) });
+})();
+/* lettura/scrittura di una voce del pannello, anche annidata («secondary.chiave») */
+function getK(k) { return k.startsWith('secondary.') ? secOf(cfg)[k.slice(10)] : cfg[k]; }
+function setK(k, v) { if (k.startsWith('secondary.')) cfg.secondary = { ...secOf(cfg), [k.slice(10)]: v }; else cfg[k] = v; }
 
 let saveT = 0;
 function scheduleSave() {
@@ -141,12 +177,13 @@ function scheduleSave() {
   }, 400);
 }
 
-const rows = [];
+const rows = [], secHeads = [];
 function buildPanel() {
   const p = $('#panel');
   p.innerHTML = '<h1>Spotify Orbit</h1><div class="sub">Le modifiche si salvano da sole</div>';
   for (const sec of SCHEMA) {
     const h = document.createElement('h2'); h.textContent = sec.t; p.appendChild(h);
+    if (sec.when) secHeads.push({ when: sec.when, h });
     if (sec.custom === 'spotify') { buildSpotify(p); continue; }
     if (sec.custom === 'profiles') { buildProfiles(p); continue; }
     for (const it of sec.items) {
@@ -395,15 +432,17 @@ function refreshPanel() {
   updateSpotifyUI();
   updateProfilesUI();
   for (const { it, row, input } of rows) {
-    if (it.type === 'toggle') input.checked = !!cfg[it.k];
-    else if (it.type === 'range') { input.value = cfg[it.k]; it._val.textContent = cfg[it.k] + (it.unit || ''); }
-    else input.value = cfg[it.k];
+    const v = getK(it.k);
+    if (it.type === 'toggle') input.checked = !!v;
+    else if (it.type === 'range') { input.value = v; it._val.textContent = v + (it.unit || ''); }
+    else input.value = v;
     row.classList.toggle('hidden', !!(it.when && !it.when(cfg)));
   }
+  for (const s of secHeads) s.h.classList.toggle('hidden', !s.when(cfg));
 }
 
 function setCfg(k, v) {
-  cfg[k] = v;
+  setK(k, v);
   refreshPanel();
   applyCfg(k);
   scheduleSave();
@@ -433,7 +472,10 @@ function applyCfg() {
   r.setProperty('--cps', cfg.captionSize / 100);
   b.toggle('w-right', cfg.wSide === 'right');
   b.toggle('w-top', cfg.wVert === 'top');
-  bgo = bgOnly(); b.toggle('bg-only', bgo);
+  b.toggle('no-center', !cfg.showCenter);
+  // testi riaccesi (es. su uno schermo secondario): scarica quelli del brano in corso
+  if (cfg.showLyrics && prevLyrics === false && state.title && !state.lyrics && !demo.on) fetchLyrics(++state.lyricReq);
+  prevLyrics = !!cfg.showLyrics;
   W_STYLES.forEach((n) => b.toggle('ws-' + n, (cfg.wStyle || 'glass') === n));
   b.toggle('w-upper', !!cfg.wUpper);
   b.toggle('w-num', !!cfg.wNumbers);
@@ -462,6 +504,7 @@ const WFONTS = {                                   // [famiglia, larghezza]
 /* impostazioni di versioni precedenti */
 function migrate(c, raw) {
   if (raw && raw.wGlass === false && !raw.wStyle) c.wStyle = 'minimal';
+  if (raw && raw.extraBgOnly && raw.secCustom === undefined) c.secCustom = true;   // 2.1.0: «solo lo sfondo» = schermi secondari di base
   return c;
 }
 const BG_LIST = ['aurora', 'mesh', 'waves', 'warp', 'synth', 'bokeh', 'blur', 'stars', 'black'];
@@ -957,7 +1000,7 @@ function renderQueue() {
 }
 // aggiorna ogni secondo «tra 3:20» e il tempo che manca al brano in corso, senza ridisegnare la coda
 function updateQueueTimes() {
-  if (cfg.sideWidget !== 'queue' || bgo) return;
+  if (cfg.sideWidget !== 'queue') return;
   const box = $('#queue'), d = state.duration, left = d ? Math.max(0, d - getPos()) : NaN;
   const rem = box.querySelector('.qnow .rem'); if (rem) rem.textContent = isNaN(left) ? '' : '−' + mmss(left);
   const bar = box.querySelector('.qnow .bar i'); if (bar) bar.style.width = d ? (getPos() / d * 100).toFixed(1) + '%' : '0%';
@@ -1007,7 +1050,7 @@ function spawn(n, s) {
 function onBeat(s, now) {
   s = clamp(s, 0.35, 1);
   lastBeat = now; beatEnergy = Math.max(beatEnergy, s);
-  if (bgo) return;                                          // solo sfondo: niente onde e particelle intorno a una copertina che non c'è
+  if (!cfg.showCenter) return;                              // niente onde e particelle intorno a una copertina che non c'è
   if (cfg.showShocks) { shocks.push({ t: now, s }); if (shocks.length > 6) shocks.shift(); }
   if (cfg.showParticles) spawn(Math.round(8 + s * 18), s);
 }
@@ -1263,7 +1306,7 @@ function setTrack(title, artist, album) {
   $('#caption .t').textContent = title; $('#caption .a').textContent = artist;
   if (!WALL && !SETWIN) document.title = title ? `${title} — ${artist}` : 'Spotify Orbit';
   renderList(); showLine('', '');
-  if (title && !demo.on && !bgo) fetchLyrics(req);         // schermo con solo lo sfondo: i testi non servono
+  if (title && !demo.on && cfg.showLyrics) fetchLyrics(req);   // testi spenti (es. schermo secondario): non servono
 }
 
 function setArt(url) {
@@ -1457,22 +1500,22 @@ function frame(now) {
   drawBlur(now);
   drawFx(dt, now);
   drawSpec();
-  if (!bgo) {
+  if (cfg.showCenter) {
     const p = getPos(), d = state.duration, fmt = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
     const w = d ? (p / d * 100).toFixed(1) + '%' : '0%', tm = state.title && d ? fmt(p) + '  /  ' + fmt(d) : '';
     if (w !== capW) { capW = w; capBar.style.width = w; }               // solo quando cambia: niente lavoro di layout a ogni fotogramma
     if (tm !== capTm) { capTm = tm; capTime.textContent = tm; }
-    updateLyrics();
   }
+  if (cfg.showLyrics) updateLyrics();
   if (cfg.drift && cfg.bg === 'blur') { /* il movimento è già nello sfondo */ }
   requestAnimationFrame(frame);
 }
 
 async function init() {
-  await loadCfg();
-  if (WALL && MON !== undefined) {                         // su quale monitor sta questo sfondo (per «solo lo sfondo» sugli altri)
+  if (WALL && MON !== undefined) {                         // su quale monitor sta questo sfondo: serve prima delle impostazioni (schermi secondari)
     try { const l = await (await fetch('/api/monitors')).json(); const m = l.find((x) => String(x.i) === MON); monPrimary = !m || !!m.primary; } catch (e) { /* principale */ }
   }
+  await loadCfg();
   if (WALL) { document.body.classList.add('wall'); document.title = 'SpotifyOrbitWallpaper[' + (MON === undefined ? '0' : MON) + ']'; }
   if (SETWIN) document.title = 'Spotify Orbit — Impostazioni';
   initGL();

@@ -280,7 +280,15 @@ fn uses_queue() -> bool {
     if cfg_str("sideWidget") == "queue" {
         return true;
     }
-    cfg_str("monitor") == "all" && crate::settings::profiles().iter().any(|(_, v)| v.get("sideWidget").and_then(Value::as_str) == Some("queue"))
+    if cfg_str("monitor") != "all" {
+        return false;
+    }
+    // schermi secondari personalizzati con la coda
+    let sec = crate::state::cfg_get("secondary");
+    if crate::state::cfg_bool("secCustom", false) && sec.get("sideWidget").and_then(Value::as_str) == Some("queue") {
+        return true;
+    }
+    crate::settings::profiles().iter().any(|(_, v)| v.get("sideWidget").and_then(Value::as_str) == Some("queue"))
 }
 
 pub fn thread() {

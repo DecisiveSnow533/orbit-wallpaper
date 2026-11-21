@@ -365,8 +365,8 @@ body.w-top #cards, body.w-top #queue, body.w-top #tl { bottom: auto; top: calc(v
 body.w-top.w-right #cards, body.w-top.w-right #queue, body.w-top.w-right #tl { transform-origin: right top; }
 body.w-top #cards { flex-direction: column; }
 
-/* schermi in più con «solo lo sfondo» */
-body.bg-only #stage, body.bg-only #spec { display: none !important; }
+/* copertina, anello e titolo al centro spenti (anche per gli schermi secondari) */
+body.no-center #glow, body.no-center #ring, body.no-center #art, body.no-center #caption { display: none !important; }
 
 /* opzioni della coda */
 body:not(.w-num) #queue .qrow .n { display: none; }
@@ -459,7 +459,7 @@ body.panel-open { cursor: default; }
 #panel .row.col { display: block; }
 #panel .row label { flex: 1; opacity: .9; }
 #panel .row .val { opacity: .55; font-variant-numeric: tabular-nums; margin-left: .4rem; font-size: .8rem; }
-#panel .row.hidden { display: none; }
+#panel .row.hidden, #panel h2.hidden { display: none; }
 #panel select, #panel input[type=color] {
   background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; padding: .35rem .5rem; font: inherit; max-width: 13rem;
 }
