@@ -1269,6 +1269,11 @@ def main():
     threading.Thread(target=audio_thread, daemon=True).start()
     threading.Thread(target=sp_thread, daemon=True).start()
     cleanup_old_installers()
+    try:                                         # «Avvia con Windows» attivo: la voce deve puntare a questo exe (cambia dopo un aggiornamento)
+        if S.cfg.get("autostart"):
+            set_autostart(True)
+    except Exception:
+        log("autostart", traceback.format_exc())
     if not nowindow:
         threading.Thread(target=update_thread, daemon=True).start()
         threading.Thread(target=wall_loop, daemon=True).start()
