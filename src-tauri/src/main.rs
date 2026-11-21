@@ -32,14 +32,26 @@ pub fn shutdown(app: &AppHandle) {
 
 /// Cartelle dei profili Edge della versione precedente (Python): con Tauri non servono più.
 fn remove_old_edge_profiles() {
-    if let Ok(rd) = std::fs::read_dir(data_dir()) {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if name.starts_with("browser") && e.path().is_dir() {
-                let _ = std::fs::remove_dir_all(e.path());
+    // subito dopo l'aggiornamento dalla 1.x gli Edge vecchi possono tenere i file ancora per qualche secondo: riprovo
+    std::thread::spawn(|| {
+        for attempt in 0..4 {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_secs(15));
+            }
+            let mut left = false;
+            if let Ok(rd) = std::fs::read_dir(data_dir()) {
+                for e in rd.flatten() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.starts_with("browser") && e.path().is_dir() && std::fs::remove_dir_all(e.path()).is_err() {
+                        left = true;
+                    }
+                }
+            }
+            if !left {
+                break;
             }
         }
-    }
+    });
 }
 
 fn main() {
