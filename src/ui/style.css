@@ -180,7 +180,52 @@ body.w-right #tl {
 body.w-right #tl .row { padding: 0 calc(var(--u) * .26) calc(var(--u) * .2) 0; }
 body.w-right #tl .row::before { left: auto; right: calc(var(--u) * -.045); }
 body.w-right #tl .row.now::before { left: auto; right: calc(var(--u) * -.06); }
-body.no-wglass #cards .card:not(.now) { background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none; }
+/* carattere dei widget */
+#cards, #tl, #disc .list { font-family: var(--wfont, var(--font)); font-stretch: var(--wstretch, 100%); }
+body.w-upper #cards .tx b, body.w-upper #cards .tx em { text-transform: uppercase; letter-spacing: .09em; }
+body.w-upper #cards .qh { letter-spacing: .3em; }
+
+/* stili delle carte (brani recenti e coda) */
+body.ws-solid #cards .card { background: rgba(10,10,16,.86); border-color: rgba(var(--accent), .3); backdrop-filter: none; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+body.ws-solid #cards .card.now { background: linear-gradient(90deg, rgba(var(--accent), .38), rgba(10,10,16,.88) 75%); border-color: rgba(var(--accent), .6); }
+
+body.ws-neon #cards .card {
+  background: rgba(6,6,12,.55); border: 1px solid rgba(var(--accent), .75); backdrop-filter: blur(10px);
+  box-shadow: 0 0 calc(var(--u) * .1) rgba(var(--accent), .45), inset 0 0 calc(var(--u) * .1) rgba(var(--accent), .18);
+}
+body.ws-neon #cards .card.now { box-shadow: 0 0 calc(var(--u) * .3) rgba(var(--accent), .85), inset 0 0 calc(var(--u) * .16) rgba(var(--accent), .35); }
+body.ws-neon #cards .tx b { text-shadow: 0 0 calc(var(--u) * .08) rgba(var(--accent), .9); }
+body.ws-neon #cards .th { box-shadow: 0 0 calc(var(--u) * .1) rgba(var(--accent), .6); }
+
+body.ws-minimal #cards { gap: 0; }
+body.ws-minimal #cards .card { background: transparent; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none; padding: calc(var(--u) * .08) 0; border-bottom: 1px solid rgba(255,255,255,.1); }
+body.ws-minimal #cards .card.now { border-bottom-color: rgba(var(--accent), .8); }
+body.ws-minimal #cards .card.now .tx b { color: rgb(var(--accent)); filter: brightness(1.6); }
+body.ws-minimal #cards .th { width: calc(var(--u) * .38); height: calc(var(--u) * .38); border-radius: 50%; }
+body.ws-minimal #cards .tx b, body.ws-minimal #cards .tx em { text-shadow: 0 1px 10px rgba(0,0,0,.8); }
+
+body.ws-compact #cards { gap: calc(var(--u) * .04); }
+body.ws-compact #cards .card { padding: calc(var(--u) * .05) calc(var(--u) * .08); border-radius: calc(var(--u) * .1); gap: calc(var(--u) * .1); }
+body.ws-compact #cards .th { width: calc(var(--u) * .3); height: calc(var(--u) * .3); border-radius: calc(var(--u) * .06); }
+body.ws-compact #cards .tx b { font-size: calc(var(--u) * .1); }
+body.ws-compact #cards .tx em { font-size: calc(var(--u) * .078); margin-top: 0; }
+body.ws-compact #cards .eq { height: calc(var(--u) * .16); }
+
+body.ws-big #cards { gap: calc(var(--u) * .12); width: calc(var(--u) * 3.2); }
+body.ws-big #cards .card { padding: calc(var(--u) * .12); border-radius: calc(var(--u) * .2); }
+body.ws-big #cards .th { width: calc(var(--u) * .78); height: calc(var(--u) * .78); border-radius: calc(var(--u) * .14); box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+body.ws-big #cards .card.now .th { width: calc(var(--u) * .98); height: calc(var(--u) * .98); }
+body.ws-big #cards .tx b { font-size: calc(var(--u) * .15); }
+body.ws-big #cards .tx em { font-size: calc(var(--u) * .11); }
+
+/* numeri dei prossimi brani (coda) */
+body.w-num #cards.q { counter-reset: qn; }
+body.w-num #cards.q .card:not(.now) { counter-increment: qn; }
+body.w-num #cards.q .card:not(.now)::before {
+  content: counter(qn); flex: none; min-width: calc(var(--u) * .16); text-align: center;
+  font-size: calc(var(--u) * .14); font-weight: 800; opacity: .55; font-variant-numeric: tabular-nums;
+}
+body.w-num.ws-neon #cards.q .card:not(.now)::before { color: rgb(var(--accent)); filter: brightness(1.6); opacity: .9; }
 body.no-wthumbs #cards .th { display: none; }
 body.no-wartist #cards .tx em, body.no-wartist #tl em, body.no-wartist #disc .list .it em { display: none; }
 

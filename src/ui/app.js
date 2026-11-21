@@ -23,7 +23,8 @@ const DEFAULTS = {
   ringStyle: 'bars', ringSize: 100, ringRotate: true, sensitivity: 100, spectrumBottom: true,
   pulseArt: true, rotateArt: false, showStars: true, showParticles: true, showShocks: true, drift: true,
   monitor: '0', fps: '60', pauseCovered: true, onlySpotify: false, autostart: false,
-  wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wGlass: true, wThumbs: true, wArtist: true, wNow: true, queueEvery: '7',
+  wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wStyle: 'glass', wFont: 'default', wUpper: false, wNumbers: false,
+  wThumbs: true, wArtist: true, wNow: true, queueEvery: '7',
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
   profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
 };
@@ -66,8 +67,15 @@ const SCHEMA = [
     { k: 'wY', type: 'range', label: 'Sposta in verticale', min: -100, max: 100, step: 5, unit: '', when: (c) => c.sideWidget !== 'none' },
     { k: 'wNow', type: 'toggle', label: 'Mostra anche il brano in corso', when: (c) => c.sideWidget !== 'none' },
     { k: 'wArtist', type: 'toggle', label: 'Mostra gli artisti', when: (c) => c.sideWidget !== 'none' },
+    { k: 'wStyle', type: 'select', label: 'Stile delle carte', opts: [
+      ['glass', 'Vetro'], ['solid', 'Pieno scuro'], ['neon', 'Neon (colore del brano)'], ['minimal', 'Minimale (solo testo)'],
+      ['compact', 'Compatto'], ['big', 'Copertine grandi']], when: (c) => c.sideWidget === 'cards' || c.sideWidget === 'queue' },
+    { k: 'wFont', type: 'select', label: 'Carattere', opts: [
+      ['default', 'Predefinito'], ['condensed', 'Stretto'], ['bold', 'Pesante'], ['serif', 'Serif elegante'], ['mono', 'Monospazio'], ['modern', 'Moderno']],
+      when: (c) => c.sideWidget !== 'none' },
+    { k: 'wUpper', type: 'toggle', label: 'Testo in maiuscolo', when: (c) => c.sideWidget === 'cards' || c.sideWidget === 'queue' },
+    { k: 'wNumbers', type: 'toggle', label: 'Numera i prossimi brani', when: (c) => c.sideWidget === 'queue' },
     { k: 'wThumbs', type: 'toggle', label: 'Mostra le copertine', when: (c) => c.sideWidget === 'cards' || c.sideWidget === 'queue' },
-    { k: 'wGlass', type: 'toggle', label: 'Carte con sfondo di vetro', when: (c) => c.sideWidget === 'cards' || c.sideWidget === 'queue' },
     { k: 'queueEvery', type: 'select', label: 'Aggiorna la coda ogni', opts: [['5', '5 secondi'], ['7', '7 secondi'], ['15', '15 secondi'], ['30', '30 secondi']], when: (c) => c.sideWidget === 'queue' },
   ] },
   { t: 'Orologio e data', items: [
@@ -414,7 +422,12 @@ function applyCfg() {
   r.setProperty('--oy', cfg.artY + '%');
   r.setProperty('--cps', cfg.captionSize / 100);
   b.toggle('w-right', cfg.wSide === 'right');
-  b.toggle('no-wglass', !cfg.wGlass);
+  W_STYLES.forEach((n) => b.toggle('ws-' + n, (cfg.wStyle || 'glass') === n));
+  b.toggle('w-upper', !!cfg.wUpper);
+  b.toggle('w-num', !!cfg.wNumbers);
+  const wf = WFONTS[cfg.wFont] || WFONTS.default;
+  r.setProperty('--wfont', wf[0]);
+  r.setProperty('--wstretch', wf[1]);
   b.toggle('no-wthumbs', !cfg.wThumbs);
   b.toggle('no-wartist', !cfg.wArtist);
   $('#clock').className = 'pos-' + cfg.clockPos;
@@ -424,6 +437,20 @@ function applyCfg() {
   renderList();
   tickClock();
   setTimeout(layout, 60);
+}
+const W_STYLES = ['glass', 'solid', 'neon', 'minimal', 'compact', 'big'];
+const WFONTS = {                                   // [famiglia, larghezza]
+  default: ['var(--font)', '100%'],
+  condensed: ['"Bahnschrift", "Arial Narrow", "Segoe UI", sans-serif', '75%'],
+  bold: ['"Segoe UI Black", "Segoe UI", system-ui, sans-serif', '100%'],
+  serif: ['Georgia, "Palatino Linotype", "Times New Roman", serif', '100%'],
+  mono: ['Consolas, "Cascadia Mono", monospace', '100%'],
+  modern: ['"Trebuchet MS", "Segoe UI", system-ui, sans-serif', '100%'],
+};
+/* impostazioni di versioni precedenti */
+function migrate(c, raw) {
+  if (raw && raw.wGlass === false && !raw.wStyle) c.wStyle = 'minimal';
+  return c;
 }
 const BG_LIST = ['aurora', 'mesh', 'waves', 'warp', 'synth', 'bokeh', 'blur', 'stars', 'black'];
 const BG2D = new Set(['mesh', 'waves', 'warp', 'synth', 'bokeh']);
@@ -440,7 +467,7 @@ async function loadCfg() {
     const d = await r.json();
     cfg = { ...DEFAULTS, ...d };
     if (d.showRecent === false && !d.sideWidget) cfg.sideWidget = 'none';     // impostazione della versione precedente
-    cfg = effective(cfg);
+    cfg = effective(migrate(cfg, d));
   } catch (e) { /* valori predefiniti */ }
 }
 
@@ -1168,7 +1195,7 @@ function connect() {
   es.addEventListener('settings', (e) => {                 // modifiche fatte da un'altra finestra
     const m = JSON.parse(e.data);
     if (m.cid === CID) return;
-    cfg = effective({ ...DEFAULTS, ...m.cfg }); refreshPanel(); applyCfg();
+    cfg = effective(migrate({ ...DEFAULTS, ...m.cfg }, m.cfg)); refreshPanel(); applyCfg();
   });
   es.onmessage = (e) => {
     const f = JSON.parse(e.data);
