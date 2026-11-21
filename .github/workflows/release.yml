@@ -34,7 +34,8 @@ jobs:
           $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
             $toml = Get-Content src-tauri/Cargo.toml -Raw
-            $toml = [regex]::Replace($toml, '(?m)^version = "[^"]*"', "version = `"$v`"", 1)
+            # solo la prima riga "version = ..." (quella del programma, non quelle delle librerie)
+            $toml = ([regex]'(?m)^version = "[^"]*"').Replace($toml, "version = `"$v`"", 1)
             Set-Content src-tauri/Cargo.toml $toml -NoNewline -Encoding utf8
           }
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8

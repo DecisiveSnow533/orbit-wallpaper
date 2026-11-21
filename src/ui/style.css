@@ -28,7 +28,7 @@ body.bg-aurora #aurora { display: block; }
 body.bg-mesh #bg2d, body.bg-waves #bg2d, body.bg-warp #bg2d, body.bg-synth #bg2d, body.bg-bokeh #bg2d { display: block; }
 #blur {
   position: fixed; inset: -18%; display: none; background: #111 center / cover no-repeat;
-  filter: blur(70px) saturate(1.6) brightness(.55); will-change: transform;
+  will-change: transform;   /* l'immagine arriva già sfocata da app.js (blurredArt) */
 }
 body.bg-blur #blur { display: block; }
 body.no-webgl #aurora { display: none; }
@@ -51,7 +51,7 @@ body.layout-center { --cx: calc(50% + var(--ox)); --cy: calc(37% + var(--oy)); }
   margin: calc(var(--art) * -1.55) 0 0 calc(var(--art) * -1.55);
   border-radius: 50%;
   background: radial-gradient(circle, rgba(var(--accent), .8) 0%, rgba(var(--accent), .32) 34%, rgba(var(--accent), 0) 68%);
-  filter: blur(calc(var(--u) * .1)); opacity: .5; will-change: transform, opacity; mix-blend-mode: screen;
+  opacity: .5; will-change: transform, opacity; mix-blend-mode: screen;   /* il gradiente è già morbido: niente filtro di sfocatura */
 }
 #ring { position: absolute; left: var(--cx); top: var(--cy); transform: translate(-50%, -50%); pointer-events: none; }
 #art {
@@ -290,6 +290,7 @@ body.idle #caption { opacity: 0; }
 @keyframes breathe { 50% { opacity: .22; } }
 
 body.wall, body.wall *, body.wall #art { cursor: default; }
+body.paused *, body.paused *::before, body.paused *::after { animation-play-state: paused !important; }   /* finestra coperta: ferme anche le animazioni CSS */
 body.wall #gear, body.wall #toast, body.wall #panel { display: none !important; }
 
 /* ---------- ingranaggio + pannello ---------- */

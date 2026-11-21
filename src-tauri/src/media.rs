@@ -15,6 +15,11 @@ pub enum Cmd {
     Prev,
 }
 
+thread_local! {
+    /// (cambio brano, ultimo controllo) per rileggere la copertina nei secondi dopo il cambio
+    static ART_RECHECK: std::cell::Cell<Option<(Instant, Instant)>> = const { std::cell::Cell::new(None) };
+}
+
 static TX: LazyLock<Mutex<Option<Sender<Cmd>>>> = LazyLock::new(|| Mutex::new(None));
 
 pub fn send(c: Cmd) {
@@ -115,6 +120,35 @@ fn step(mgr: &Manager, rx: &Receiver<Cmd>) -> windows::core::Result<()> {
         let mut p = S.play.lock().unwrap();
         p.pos = 0.0;
         p.t_ref = Instant::now();
+        ART_RECHECK.with(|c| c.set(Some((Instant::now(), Instant::now()))));
+    } else {
+        // Spotify cambia la copertina qualche istante dopo il titolo: per 8 s dopo il cambio la rileggo ogni secondo
+        let due = ART_RECHECK.with(|c| match c.get() {
+            Some((since, last)) if since.elapsed().as_secs_f32() < 8.0 => {
+                if last.elapsed().as_secs_f32() >= 1.0 {
+                    c.set(Some((since, Instant::now())));
+                    true
+                } else {
+                    false
+                }
+            }
+            Some(_) => {
+                c.set(None);
+                false
+            }
+            None => false,
+        });
+        if due {
+            if let Ok((art, mime)) = read_thumb(&props) {
+                let mut t = S.track.lock().unwrap();
+                if !art.is_empty() && art != t.art {
+                    t.art = art;
+                    t.art_mime = mime;
+                    t.art_ver += 1;
+                    t.ver += 1;
+                }
+            }
+        }
     }
     let tl = s.GetTimelineProperties()?;
     let playing = s.GetPlaybackInfo()?.PlaybackStatus()? == Status::Playing;

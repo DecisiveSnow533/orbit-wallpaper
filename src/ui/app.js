@@ -748,7 +748,17 @@ function drawBg2d(dt, now) {
   c.globalCompositeOperation = 'source-over';
 }
 
-const blurEl = $('#blur');
+const blurEl = $('#blur'), lyricsEl = $('#lyrics');
+let lastBeatVar = -1;
+// sfondo «copertina sfocata»: la sfocatura si calcola una volta sola per brano su un'immagine piccola
+// (prima era un filtro CSS da 70 px sull'intero schermo, ricalcolato a ogni fotogramma)
+function blurredArt(im) {
+  const N = 160, c = document.createElement('canvas'); c.width = c.height = N;
+  const x = c.getContext('2d');
+  x.filter = 'blur(3px) saturate(1.6) brightness(.55)';
+  x.drawImage(im, -12, -12, N + 24, N + 24);                 // un po' più grande: niente bordi sfumati verso il trasparente
+  return c.toDataURL('image/jpeg', 0.9);
+}
 function drawBlur(now) {
   if (cfg.bg !== 'blur' && !(document.body.classList.contains('no-webgl') && cfg.bg === 'aurora')) return;
   const t = now / 1000 * (cfg.bgSpeed / 100);
@@ -976,7 +986,9 @@ function drawRing(dt, now) {
   const gl2 = $('#glow');
   gl2.style.opacity = clamp((0.45 + pulse * 0.5) * cfg.glowStrength / 100, 0, 1).toFixed(3);
   gl2.style.transform = `scale(${1 + pulse * 0.2})`;
-  document.documentElement.style.setProperty('--beat', beatEnergy.toFixed(3));
+  // solo sui testi e solo quando cambia davvero: aggiornarla su tutta la pagina a ogni fotogramma costa parecchio
+  const bq = beatEnergy < 0.01 ? 0 : Math.round(beatEnergy * 50) / 50;
+  if (bq !== lastBeatVar) { lastBeatVar = bq; lyricsEl.style.setProperty('--beat', bq); }
 }
 
 function drawFx(dt, now) {
@@ -1151,7 +1163,8 @@ function setArt(url) {
   const im = new Image();
   im.onload = () => {
     document.querySelectorAll('.img').forEach((el) => { el.style.backgroundImage = `url("${url}")`; });
-    blurEl.style.backgroundImage = `url("${url}")`;
+    let bu = url; try { bu = blurredArt(im); } catch (e) { /* resta l'originale */ }
+    blurEl.style.backgroundImage = `url("${bu}")`;
     const a = $('#art .img'); a.classList.remove('swap'); void a.offsetWidth; a.classList.add('swap');
     artPal = extractPalette(im); recomputePalette();
     try {                                                                   // miniatura per la cronologia
@@ -1313,8 +1326,17 @@ window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(()
  *  Ciclo di disegno
  * ====================================================================== */
 let last = performance.now();
+let lastMouse = 0;
+window.addEventListener('mousemove', () => { lastMouse = performance.now(); });
+function idleNow(now) {
+  if (WALL) return paused && cfg.pauseCovered;                                     // desktop coperto
+  // finestra delle impostazioni dietro ad altre o non usata: l'anteprima si ferma finché non ci torni
+  return SETWIN && (document.hidden || (!document.hasFocus() && now - lastMouse > 3000));
+}
 function frame(now) {
-  if (WALL && paused && cfg.pauseCovered) { setTimeout(() => requestAnimationFrame(frame), 400); return; }   // desktop coperto: niente disegno
+  const idle = idleNow(now);
+  document.body.classList.toggle('paused', idle);
+  if (idle) { setTimeout(() => requestAnimationFrame(frame), 400); return; }     // niente disegno
   if (now - last < 1000 / (Number(cfg.fps) || 60) - 2.5) { requestAnimationFrame(frame); return; }          // limite di fotogrammi
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   if (demo.on) runDemo(now);

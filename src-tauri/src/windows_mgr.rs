@@ -57,8 +57,17 @@ pub fn stop_walls(app: &AppHandle) {
     }
 }
 
+/// Accende o spegne il disegno di WebView2. Spenta, la pagina non disegna nulla e la GPU resta libera;
+/// serve quando lo sfondo è coperto dalle finestre (WebView2, a differenza di Edge, non se ne accorge da solo).
+fn set_rendering(w: &WebviewWindow, on: bool) {
+    let _ = w.with_webview(move |pw| unsafe {
+        let _ = pw.controller().SetIsVisible(on);
+    });
+}
+
 pub fn thread(app: AppHandle) {
     let mut walls: HashMap<i32, Wall> = HashMap::new();
+    let mut drawing: HashMap<i32, bool> = HashMap::new(); // stato del disegno per ogni monitor
     loop {
         let t = targets();
         let want: Vec<i32> = t.iter().map(|m| m.i).collect();
@@ -68,13 +77,23 @@ pub fn thread(app: AppHandle) {
                 if !want.contains(&i) || !S.wall_enabled.load(Ordering::SeqCst) {
                     let _ = w.destroy();
                     walls.remove(&i);
+                    drawing.remove(&i);
                 }
             }
         }
         let pc = cfg_bool("pauseCovered", true);
         let cm: HashMap<i32, bool> = t.iter().map(|m| (m.i, pc && desktop::covered(m))).collect();
         S.covered.store(cm.values().any(|v| *v), Ordering::SeqCst);
-        *S.covered_map.lock().unwrap() = cm;
+        *S.covered_map.lock().unwrap() = cm.clone();
+        for (i, cov) in &cm {
+            let on = !cov;
+            if drawing.get(i) != Some(&on) {
+                if let Some(w) = app.get_webview_window(&format!("wall-{i}")) {
+                    set_rendering(&w, on);
+                    drawing.insert(*i, on);
+                }
+            }
+        }
         if !S.wall_enabled.load(Ordering::SeqCst) {
             *S.wall_state.lock().unwrap() = "spento".into();
             std::thread::sleep(Duration::from_secs(1));
@@ -89,6 +108,7 @@ pub fn thread(app: AppHandle) {
                         Ok(parent) => {
                             log(format!("sfondo agganciato {} {}x{}", m.i, m.w, m.h));
                             walls.insert(m.i, Wall { parent, mon: m.clone() });
+                            drawing.remove(&m.i); // al prossimo giro si allinea con lo stato coperto/scoperto
                         }
                         Err(e) => {
                             log(format!("aggancio sfondo {}: {e}", m.i));
