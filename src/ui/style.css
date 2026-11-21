@@ -27,8 +27,9 @@ body:not(.moving):not(.wall) { cursor: none; }          /* a schermo intero il p
 body.bg-aurora #aurora { display: block; }
 body.bg-mesh #bg2d, body.bg-waves #bg2d, body.bg-warp #bg2d, body.bg-synth #bg2d, body.bg-bokeh #bg2d { display: block; }
 #blur {
-  position: fixed; inset: -18%; display: none; background: #111 center / cover no-repeat;
-  will-change: transform;   /* l'immagine arriva già sfocata da app.js (blurredArt) */
+  /* tela piccola (256 px, già sfocata da app.js) ingrandita dalla GPU: pochi KB invece di una texture da 3500×2000 */
+  position: fixed; left: -18%; top: -18%; width: 136%; height: 136%; display: none; background: #111;
+  object-fit: cover; will-change: transform;
 }
 body.bg-blur #blur { display: block; }
 body.no-webgl #aurora { display: none; }

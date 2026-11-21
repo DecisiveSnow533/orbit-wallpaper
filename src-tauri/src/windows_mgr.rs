@@ -59,9 +59,21 @@ pub fn stop_walls(app: &AppHandle) {
 
 /// Accende o spegne il disegno di WebView2. Spenta, la pagina non disegna nulla e la GPU resta libera;
 /// serve quando lo sfondo è coperto dalle finestre (WebView2, a differenza di Edge, non se ne accorge da solo).
+/// Da spenta chiede anche a WebView2 di tenere la memoria al minimo (libera immagini e superfici in GPU).
 fn set_rendering(w: &WebviewWindow, on: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+    };
+    use windows_core::Interface;
     let _ = w.with_webview(move |pw| unsafe {
-        let _ = pw.controller().SetIsVisible(on);
+        let ctl = pw.controller();
+        let _ = ctl.SetIsVisible(on);
+        if let Ok(wv) = ctl.CoreWebView2() {
+            if let Ok(wv19) = wv.cast::<ICoreWebView2_19>() {
+                let lvl = if on { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW };
+                let _ = wv19.SetMemoryUsageTargetLevel(lvl);
+            }
+        }
     });
 }
 

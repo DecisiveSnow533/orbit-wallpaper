@@ -26,6 +26,9 @@ base64 = "0.22"
 rand = "0.8"
 winreg = "0.52"
 open = "5"
+# stesse versioni usate da Tauri: servono per dire a WebView2 di liberare memoria quando lo sfondo è coperto
+webview2-com = "0.39"
+windows-core = "0.62"
 
 [dependencies.windows]
 version = "0.61"

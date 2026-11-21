@@ -618,8 +618,8 @@ function initGL() {
 
 function resizeGL() {
   if (!glOk) return;
-  const q = { low: 0.32, medium: 0.5, high: 0.85 }[cfg.bgQuality] || 0.5;
-  const w = Math.max(2, Math.round(window.innerWidth * q)), h = Math.max(2, Math.round(window.innerHeight * q));
+  const q = { low: 0.32, medium: 0.5, high: 0.85 }[cfg.bgQuality] || 0.5, on = cfg.bg === 'aurora';   // spenta: tela minima, niente memoria
+  const w = on ? Math.max(2, Math.round(window.innerWidth * q)) : 2, h = on ? Math.max(2, Math.round(window.innerHeight * q)) : 2;
   if (glc.width !== w || glc.height !== h) { glc.width = w; glc.height = h; gl.viewport(0, 0, w, h); }
 }
 
@@ -642,9 +642,19 @@ function drawAurora(dt) {
 const b2 = $('#bg2d'), b2c = b2.getContext('2d');
 function sizeBg2d() {
   const q = { low: 0.5, medium: 0.75, high: 1 }[cfg.bgQuality] || 0.75, d = Math.min(window.devicePixelRatio || 1, 1.5) * q;
-  const W = window.innerWidth, H = window.innerHeight;
-  b2.width = Math.max(2, Math.round(W * d)); b2.height = Math.max(2, Math.round(H * d));
+  const W = window.innerWidth, H = window.innerHeight, on = BG2D.has(cfg.bg);   // spenta: tela minima, niente memoria
+  const w = on ? Math.max(2, Math.round(W * d)) : 2, h = on ? Math.max(2, Math.round(H * d)) : 2;
+  if (b2.width !== w || b2.height !== h) { b2.width = w; b2.height = h; }
   b2c.setTransform(b2.width / W, 0, 0, b2.height / H, 0, 0);
+}
+// spettro in basso: la tela copre solo la striscia dove disegna (prima era grande come lo schermo)
+function sizeSpec() {
+  const d = Math.min(dpr, 1.5), W = window.innerWidth, H = window.innerHeight, on = cfg.spectrumBottom;
+  const hc = on ? Math.min(H, Math.ceil(H * 0.2 * cfg.specHeight / 100) + 2) : 2;
+  spec.style.top = 'auto'; spec.style.bottom = '0'; spec.style.height = hc + 'px';
+  const w = on ? Math.round(W * d) : 2, h = on ? Math.round(hc * d) : 2;
+  if (spec.width !== w || spec.height !== h) { spec.width = w; spec.height = h; }
+  sc.setTransform(d, 0, 0, d, 0, -(H - hc) * d);             // si disegna con le coordinate dello schermo
 }
 const warpStars = Array.from({ length: 560 }, () => ({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1, z: Math.random(), ci: Math.floor(Math.random() * 3) }));
 const bokeh = Array.from({ length: 52 }, () => ({ x: Math.random(), y: Math.random(), r: 0.025 + Math.random() * 0.11, s: 0.008 + Math.random() * 0.03, ci: Math.floor(Math.random() * 3), a: 0.1 + Math.random() * 0.28, ph: Math.random() * 6.28, layer: Math.random() }));
@@ -752,12 +762,13 @@ const blurEl = $('#blur'), lyricsEl = $('#lyrics');
 let lastBeatVar = -1;
 // sfondo «copertina sfocata»: la sfocatura si calcola una volta sola per brano su un'immagine piccola
 // (prima era un filtro CSS da 70 px sull'intero schermo, ricalcolato a ogni fotogramma)
-function blurredArt(im) {
-  const N = 160, c = document.createElement('canvas'); c.width = c.height = N;
-  const x = c.getContext('2d');
-  x.filter = 'blur(3px) saturate(1.6) brightness(.55)';
-  x.drawImage(im, -12, -12, N + 24, N + 24);                 // un po' più grande: niente bordi sfumati verso il trasparente
-  return c.toDataURL('image/jpeg', 0.9);
+function drawBlurredArt(im) {
+  const N = 256;
+  if (blurEl.width !== N) { blurEl.width = N; blurEl.height = N; }
+  const x = blurEl.getContext('2d');
+  x.filter = 'blur(5px) saturate(1.6) brightness(.55)';
+  x.drawImage(im, -20, -20, N + 40, N + 40);                 // un po' più grande: niente bordi sfumati verso il trasparente
+  x.filter = 'none';
 }
 function drawBlur(now) {
   if (cfg.bg !== 'blur' && !(document.body.classList.contains('no-webgl') && cfg.bg === 'aurora')) return;
@@ -784,7 +795,7 @@ function layout() {
   ring.width = Math.round(ringCss * dpr); ring.height = Math.round(ringCss * dpr);
   const d = Math.min(dpr, 1.5), W = window.innerWidth, H = window.innerHeight;
   fx.width = Math.round(W * d); fx.height = Math.round(H * d); fc.setTransform(d, 0, 0, d, 0, 0);
-  spec.width = Math.round(W * d); spec.height = Math.round(H * d); sc.setTransform(d, 0, 0, d, 0, 0);
+  sizeSpec();
   sizeBg2d();
   layoutList();
 }
@@ -1163,8 +1174,7 @@ function setArt(url) {
   const im = new Image();
   im.onload = () => {
     document.querySelectorAll('.img').forEach((el) => { el.style.backgroundImage = `url("${url}")`; });
-    let bu = url; try { bu = blurredArt(im); } catch (e) { /* resta l'originale */ }
-    blurEl.style.backgroundImage = `url("${bu}")`;
+    try { drawBlurredArt(im); } catch (e) { /* resta lo sfondo scuro */ }
     const a = $('#art .img'); a.classList.remove('swap'); void a.offsetWidth; a.classList.add('swap');
     artPal = extractPalette(im); recomputePalette();
     try {                                                                   // miniatura per la cronologia
@@ -1179,7 +1189,7 @@ function setArt(url) {
 }
 function clearArt() {
   document.querySelectorAll('.img').forEach((el) => { el.style.backgroundImage = ''; });
-  blurEl.style.backgroundImage = ''; artPal = null; state.thumb = ''; recomputePalette();
+  blurEl.width = 2; blurEl.height = 2; artPal = null; state.thumb = ''; recomputePalette();
 }
 
 /* ====================================================================== *
