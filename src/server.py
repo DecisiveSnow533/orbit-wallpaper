@@ -1096,10 +1096,13 @@ def wall_step(desktop, mon, w):
         return True
     l, t, r, b = desktop.current_rect_in_parent(hwnd)
     if desktop.parent_of(hwnd) != w["parent"] or w["mon"] != mon or abs(l - mon["x"]) > 2 or abs(t - mon["y"]) > 2 \
-            or abs((r - l) - mon["w"]) > 2 or abs((b - t) - mon["h"]) > 2:
-        desktop.embed(hwnd, mon)               # monitor cambiato, Explorer riavviato, risoluzione cambiata…
+            or abs((r - l) - mon["w"]) > 2 or abs((b - t) - mon["h"]) > 2 or not desktop.looks_embedded(hwnd):
+        desktop.embed(hwnd, mon)               # monitor cambiato, Explorer riavviato, risoluzione cambiata, stili ripristinati…
         w["mon"] = mon
         log("sfondo riposizionato", i)
+    if time.time() - w.get("tb", 0.0) > 3:    # il browser può far ricomparire il pulsante nella barra: lo ritolgo
+        desktop.hide_from_taskbar(hwnd)
+        w["tb"] = time.time()
     return True
 
 

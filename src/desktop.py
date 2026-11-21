@@ -1,6 +1,8 @@
 """Aggancio di una finestra al desktop di Windows (sfondo animato dietro alle icone)."""
 import ctypes
+import threading
 import time
+import uuid
 from ctypes import wintypes
 
 u = ctypes.windll.user32
@@ -167,11 +169,63 @@ def place(hwnd, parent, mon, insert_after=None):
     u.SetWindowPos(hwnd, after, pt.x, pt.y, mon["w"], mon["h"], SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW)
 
 
+class _GUID(ctypes.Structure):
+    _fields_ = [("b", ctypes.c_ubyte * 16)]
+
+
+def _guid(s):
+    g = _GUID()
+    ctypes.memmove(ctypes.byref(g), uuid.UUID(s).bytes_le, 16)
+    return g
+
+
+_TB = threading.local()
+
+
+def _taskbar_list():
+    """ITaskbarList (COM) per questo thread, oppure None."""
+    t = getattr(_TB, "t", None)
+    if t is not None:
+        return t
+    ole32 = ctypes.windll.ole32
+    ole32.CoInitializeEx(None, 0x2)
+    ole32.CoCreateInstance.restype = ctypes.c_long
+    p = ctypes.c_void_p()
+    hr = ole32.CoCreateInstance(ctypes.byref(_guid("56FDF344-FD6D-11d0-958A-006097C9A090")), None, 1,
+                                ctypes.byref(_guid("56FDF342-FD6D-11d0-958A-006097C9A090")), ctypes.byref(p))
+    if hr != 0 or not p.value:
+        return None
+    vt = ctypes.cast(ctypes.cast(p, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
+    if ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vt[3])(p) != 0:      # HrInit
+        return None
+    _TB.t = (p, vt)
+    return _TB.t
+
+
+def hide_from_taskbar(hwnd):
+    """Toglie il pulsante della finestra dalla barra delle applicazioni (ITaskbarList::DeleteTab)."""
+    try:
+        t = _taskbar_list()
+        if not t:
+            return False
+        p, vt = t
+        return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, HWND)(vt[5])(p, hwnd) == 0
+    except Exception:
+        return False
+
+
+def looks_embedded(hwnd):
+    """La finestra ha ancora gli stili da sfondo? (il browser a volte li ripristina)"""
+    st, ex = _GetLong(hwnd, GWL_STYLE), _GetLong(hwnd, GWL_EXSTYLE)
+    return bool(st & WS_CHILD) and not (st & WS_CAPTION) and bool(ex & WS_EX_TOOLWINDOW) and not (ex & WS_EX_APPWINDOW)
+
+
 def embed(hwnd, mon):
     """Trasforma la finestra in uno sfondo: senza bordi, figlia del desktop, sotto le icone."""
     parent, insert_after = find_desktop_parent()
     if not parent:
         raise RuntimeError("desktop non trovato")
+    u.ShowWindow(hwnd, 0)          # nascosta mentre cambia natura: così Windows toglie il pulsante dalla barra
     st = _GetLong(hwnd, GWL_STYLE)
     st &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP | WS_BORDER | WS_DLGFRAME)
     st |= WS_CHILD | WS_VISIBLE
@@ -182,6 +236,7 @@ def embed(hwnd, mon):
     _SetLong(hwnd, GWL_EXSTYLE, ex)
     u.SetParent(hwnd, parent)
     place(hwnd, parent, mon, insert_after)
+    hide_from_taskbar(hwnd)
     return parent, insert_after
 
 
