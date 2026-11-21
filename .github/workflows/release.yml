@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Installa Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Cache di Cargo
         uses: actions/cache@v4
         with:
@@ -37,7 +40,15 @@ jobs:
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Compila il programma (Rust + Tauri)
-        run: ./build.ps1
+        run: |
+          cargo --version
+          try { ./build.ps1 *>&1 | Tee-Object -FilePath build.log } catch { "$_" | Tee-Object -FilePath build.log -Append }
+          if (-not (Test-Path dist/SpotifyOrbit.exe)) {
+            # le ultime righe finiscono nel riepilogo pubblico della compilazione
+            $tail = (Get-Content build.log -Tail 25) -join '%0A'
+            Write-Output "::error title=Compilazione non riuscita::$tail"
+            exit 1
+          }
 
       - name: Installa Inno Setup
         run: choco install innosetup --no-progress -y
