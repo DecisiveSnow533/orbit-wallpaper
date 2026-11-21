@@ -73,8 +73,8 @@ La versione Python precedente (1.x) è nel ramo [`python`](../../tree/python).
 Servono [Rust](https://rustup.rs) e gli strumenti C++ di Visual Studio (Build Tools, carico di lavoro «Sviluppo di applicazioni desktop con C++»).
 
 ```powershell
-.uild.ps1                                   # crea dist\SpotifyOrbit.exe (circa 12 MB, un solo file)
-.\installeruild-installer.ps1 -SkipBuild    # facoltativo: crea l'installer (serve Inno Setup 6)
+.\build.ps1                                   # crea dist\SpotifyOrbit.exe (circa 12 MB, un solo file)
+.\installer\build-installer.ps1 -SkipBuild    # facoltativo: crea l'installer (serve Inno Setup 6)
 ```
 
 Per provare durante lo sviluppo: `cd src-tauri; cargo run`.
