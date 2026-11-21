@@ -26,7 +26,7 @@ const DEFAULTS = {
   pulseArt: true, rotateArt: false, showStars: true, showParticles: true, showShocks: true, drift: true,
   monitor: '0', fps: '60', pauseCovered: true, onlySpotify: false, autostart: false,
   wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wStyle: 'glass', wFont: 'default', wUpper: false, wNumbers: false,
-  wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', showCenter: true,
+  wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', showCenter: true, lastWidget: 'queue',
   secCustom: false, secondary: {},
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
   profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
@@ -38,7 +38,7 @@ const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', '
 const SEC_DEFAULTS = {
   showCenter: false, ringSize: 100, artX: 0, artY: 0, captionSize: 100,
   showLyrics: false, layout: 'classic', lyricsSize: 100,
-  sideWidget: 'none', qLayout: 'list', wStyle: 'glass', wCount: 4, wScale: 100, wSide: 'left', wVert: 'bottom', wX: 0, wY: 0,
+  sideWidget: 'none', lastWidget: 'queue', qLayout: 'list', wStyle: 'glass', wCount: 4, wScale: 100, wSide: 'left', wVert: 'bottom', wX: 0, wY: 0,
   showClock: false, showDate: false, clockPos: 'tr', clockSize: 100,
   spectrumBottom: false, specHeight: 100,
 };
@@ -56,6 +56,19 @@ function effective(c) {
 
 const SCHEMA = [
   { t: 'Profili', custom: 'profiles' },
+  { t: 'Cosa mostrare', items: [                         // un interruttore per ogni cosa: spenta sparisce del tutto
+    { k: 'showCenter', type: 'toggle', label: 'Copertina e anello al centro' },
+    { k: 'showCaption', type: 'toggle', label: 'Titolo e artista sotto la copertina', when: (c) => c.showCenter },
+    { k: 'showProgress', type: 'toggle', label: 'Barra di avanzamento del brano', when: (c) => c.showCenter && c.showCaption },
+    { k: 'showLyrics', type: 'toggle', label: 'Testi sincronizzati' },
+    { k: 'showWidget', type: 'toggle', label: 'Brani recenti o coda di Spotify' },
+    { k: 'showClock', type: 'toggle', label: 'Ora' },
+    { k: 'showDate', type: 'toggle', label: 'Giorno' },
+    { k: 'spectrumBottom', type: 'toggle', label: 'Spettro in basso' },
+    { k: 'showStars', type: 'toggle', label: 'Stelle' },
+    { k: 'showParticles', type: 'toggle', label: 'Particelle intorno alla copertina', when: (c) => c.showCenter },
+    { k: 'showShocks', type: 'toggle', label: 'Onde d\'urto sui colpi di basso', when: (c) => c.showCenter },
+  ] },
   { t: 'Sfondo', items: [
     { k: 'bg', type: 'select', label: 'Stile', opts: [
       ['aurora', 'Aurora (fumo di colore)'], ['mesh', 'Sfumature morbide'], ['waves', 'Onde musicali'], ['warp', 'Viaggio nello spazio'],
@@ -71,9 +84,9 @@ const SCHEMA = [
     { k: 'artX', type: 'range', label: 'Sposta la copertina in orizzontale', min: -25, max: 25, step: 1, unit: '%' },
     { k: 'artY', type: 'range', label: 'Sposta la copertina in verticale', min: -25, max: 25, step: 1, unit: '%' },
   ] },
-  { t: 'Brani recenti e coda', items: [
+  { t: 'Brani recenti e coda', when: (c) => c.sideWidget !== 'none', items: [
     { k: 'sideWidget', type: 'select', label: 'Cosa mostrare', opts: [
-      ['vinyl', 'Disco che gira (recenti)'], ['cards', 'Carte con copertine (recenti)'], ['timeline', 'Linea del tempo (recenti)'], ['queue', 'Coda di Spotify (prossimi brani)'], ['none', 'Niente']] },
+      ['vinyl', 'Disco che gira (recenti)'], ['cards', 'Carte con copertine (recenti)'], ['timeline', 'Linea del tempo (recenti)'], ['queue', 'Coda di Spotify (prossimi brani)']] },
     { k: 'wCount', type: 'range', label: 'Quanti brani mostrare', min: 1, max: 8, step: 1, unit: '', when: (c) => c.sideWidget !== 'none' },
     { k: 'wScale', type: 'range', label: 'Dimensione', min: 50, max: 250, step: 5, unit: '%', when: (c) => c.sideWidget !== 'none' },
     { k: 'wOpacity', type: 'range', label: 'Trasparenza', min: 30, max: 100, step: 5, unit: '%', when: (c) => c.sideWidget !== 'none' },
@@ -97,40 +110,30 @@ const SCHEMA = [
     { k: 'wThumbs', type: 'toggle', label: 'Mostra le copertine', when: (c) => c.sideWidget === 'cards' || c.sideWidget === 'queue' },
     { k: 'queueEvery', type: 'select', label: 'Aggiorna la coda ogni', opts: [['5', '5 secondi'], ['7', '7 secondi'], ['15', '15 secondi'], ['30', '30 secondi']], when: (c) => c.sideWidget === 'queue' },
   ] },
-  { t: 'Orologio e data', items: [
-    { k: 'showClock', type: 'toggle', label: 'Mostra l\'ora' },
+  { t: 'Orologio e data', when: (c) => c.showClock || c.showDate, items: [
     { k: 'clock24', type: 'toggle', label: 'Formato 24 ore', when: (c) => c.showClock },
     { k: 'showSeconds', type: 'toggle', label: 'Mostra i secondi', when: (c) => c.showClock },
-    { k: 'showDate', type: 'toggle', label: 'Mostra il giorno' },
     { k: 'dateFormat', type: 'select', label: 'Formato giorno', opts: [['long', 'venerdì 21 novembre'], ['short', '21/11/2026'], ['full', 'venerdì 21 novembre 2026']], when: (c) => c.showDate },
     { k: 'clockPos', type: 'select', label: 'Posizione', opts: [['tr', 'In alto a destra'], ['tl', 'In alto a sinistra'], ['tc', 'In alto al centro'], ['br', 'In basso a destra'], ['bl', 'In basso a sinistra']] },
     { k: 'clockSize', type: 'range', label: 'Dimensione', min: 60, max: 220, step: 10, unit: '%' },
   ] },
-  { t: 'Brano e testi', items: [
-    { k: 'showCenter', type: 'toggle', label: 'Copertina, anello e titolo al centro' },
-    { k: 'showCaption', type: 'toggle', label: 'Titolo e artista sotto la copertina', when: (c) => c.showCenter },
-    { k: 'captionSize', type: 'range', label: 'Dimensione titolo e artista', min: 60, max: 200, step: 5, unit: '%', when: (c) => c.showCaption },
-    { k: 'showProgress', type: 'toggle', label: 'Barra di avanzamento' },
-    { k: 'showLyrics', type: 'toggle', label: 'Testi sincronizzati' },
+  { t: 'Brano e testi', when: (c) => (c.showCenter && c.showCaption) || c.showLyrics, items: [
+    { k: 'captionSize', type: 'range', label: 'Dimensione titolo e artista', min: 60, max: 200, step: 5, unit: '%', when: (c) => c.showCenter && c.showCaption },
     { k: 'lyricsFont', type: 'select', label: 'Carattere dei testi', opts: [['condensed', 'Condensato'], ['bold', 'Pesante'], ['serif', 'Serif elegante'], ['mono', 'Monospazio']], when: (c) => c.showLyrics },
     { k: 'lyricsSize', type: 'range', label: 'Dimensione testi', min: 60, max: 160, step: 5, unit: '%', when: (c) => c.showLyrics },
     { k: 'lyricsOffset', type: 'range', label: 'Anticipo testi', min: -3000, max: 3000, step: 50, unit: ' ms', when: (c) => c.showLyrics },
   ] },
   { t: 'Anello e musica', items: [
-    { k: 'ringStyle', type: 'select', label: 'Stile anello', opts: [['bars', 'Barre'], ['wave', 'Onda liscia'], ['dots', 'Punti']] },
-    { k: 'ringSize', type: 'range', label: 'Dimensione copertina e anello', min: 60, max: 150, step: 5, unit: '%' },
-    { k: 'glowStrength', type: 'range', label: 'Intensità dell\'alone', min: 0, max: 200, step: 10, unit: '%' },
+    { k: 'ringStyle', type: 'select', label: 'Stile anello', opts: [['bars', 'Barre'], ['wave', 'Onda liscia'], ['dots', 'Punti']], when: (c) => c.showCenter },
+    { k: 'ringSize', type: 'range', label: 'Dimensione copertina e anello', min: 60, max: 150, step: 5, unit: '%', when: (c) => c.showCenter },
+    { k: 'glowStrength', type: 'range', label: 'Intensità dell\'alone', min: 0, max: 200, step: 10, unit: '%', when: (c) => c.showCenter },
     { k: 'specHeight', type: 'range', label: 'Altezza dello spettro in basso', min: 40, max: 250, step: 10, unit: '%', when: (c) => c.spectrumBottom },
     { k: 'sensitivity', type: 'range', label: 'Sensibilità audio', min: 40, max: 250, step: 5, unit: '%' },
-    { k: 'ringRotate', type: 'toggle', label: 'Anello che ruota' },
-    { k: 'spectrumBottom', type: 'toggle', label: 'Spettro in basso' },
-    { k: 'pulseArt', type: 'toggle', label: 'Copertina che pulsa' },
-    { k: 'rotateArt', type: 'toggle', label: 'Copertina che gira come un vinile' },
+    { k: 'ringRotate', type: 'toggle', label: 'Anello che ruota', when: (c) => c.showCenter },
+    { k: 'pulseArt', type: 'toggle', label: 'Copertina che pulsa', when: (c) => c.showCenter },
+    { k: 'rotateArt', type: 'toggle', label: 'Copertina che gira come un vinile', when: (c) => c.showCenter },
   ] },
   { t: 'Atmosfera', items: [
-    { k: 'showStars', type: 'toggle', label: 'Stelle' },
-    { k: 'showParticles', type: 'toggle', label: 'Particelle' },
-    { k: 'showShocks', type: 'toggle', label: 'Onde d\'urto sui colpi di basso' },
     { k: 'drift', type: 'toggle', label: 'Movimento della camera' },
   ] },
   { t: 'Coda di Spotify', custom: 'spotify' },
@@ -152,22 +155,34 @@ const SCHEMA = [
   const S = (k, label, w) => ({ ...base(k), k: 'secondary.' + k, label: label || base(k).label, when: (c) => on(c) && (!w || !!w(secOf(c))) });
   SCHEMA.push({ t: 'Schermi secondari', when: (c) => c.monitor === 'all', items: [
     { k: 'secCustom', type: 'toggle', label: 'Scegli cosa mostrare sugli schermi secondari (spento: uguali al principale)' },
-    S('showCenter'),
+    // cosa mostrare: un interruttore per ogni cosa
+    S('showCenter'), S('showLyrics'), S('showWidget'), S('showClock'), S('showDate'), S('spectrumBottom'),
+    // posizione e dimensione di ciò che è acceso
     S('ringSize', null, (s) => s.showCenter), S('artX', null, (s) => s.showCenter), S('artY', null, (s) => s.showCenter),
     S('captionSize', null, (s) => s.showCenter),
-    S('showLyrics'), S('layout', 'Posizione dei testi', (s) => s.showLyrics), S('lyricsSize', null, (s) => s.showLyrics),
-    S('sideWidget', 'Brani recenti e coda'),
+    S('layout', 'Posizione dei testi', (s) => s.showLyrics), S('lyricsSize', null, (s) => s.showLyrics),
+    S('sideWidget', 'Brani recenti o coda: cosa mostrare', wid),
     S('qLayout', null, (s) => s.sideWidget === 'queue'), S('wStyle', null, (s) => s.sideWidget === 'cards' || s.sideWidget === 'queue'),
     S('wCount', null, wid), S('wScale', 'Dimensione dei brani', wid), S('wSide', null, side), S('wVert', null, side),
     S('wX', 'Sposta i brani in orizzontale', wid), S('wY', 'Sposta i brani in verticale', wid),
-    S('showClock'), S('showDate'),
     S('clockPos', 'Posizione di ora e data', (s) => s.showClock || s.showDate), S('clockSize', 'Dimensione di ora e data', (s) => s.showClock || s.showDate),
-    S('spectrumBottom'), S('specHeight', null, (s) => s.spectrumBottom),
+    S('specHeight', null, (s) => s.spectrumBottom),
   ].map((it) => (it.k === 'secCustom' ? { ...it, when: (c) => c.monitor === 'all' } : it)) });
 })();
 /* lettura/scrittura di una voce del pannello, anche annidata («secondary.chiave») */
-function getK(k) { return k.startsWith('secondary.') ? secOf(cfg)[k.slice(10)] : cfg[k]; }
-function setK(k, v) { if (k.startsWith('secondary.')) cfg.secondary = { ...secOf(cfg), [k.slice(10)]: v }; else cfg[k] = v; }
+/* «showWidget» non è salvato: acceso/spento vuol dire sideWidget diverso da 'none'; spegnendo si ricorda il tipo (lastWidget) */
+function getK(k) {
+  const sec = k.startsWith('secondary.'), o = sec ? secOf(cfg) : cfg, key = sec ? k.slice(10) : k;
+  return key === 'showWidget' ? o.sideWidget !== 'none' : o[key];
+}
+function setK(k, v) {
+  const sec = k.startsWith('secondary.'), o = sec ? secOf(cfg) : cfg, key = sec ? k.slice(10) : k;
+  if (key === 'showWidget') {
+    if (v) { if (o.sideWidget === 'none') o.sideWidget = o.lastWidget && o.lastWidget !== 'none' ? o.lastWidget : 'queue'; }
+    else { if (o.sideWidget !== 'none') o.lastWidget = o.sideWidget; o.sideWidget = 'none'; }
+  } else o[key] = v;
+  if (sec) cfg.secondary = o;
+}
 
 let saveT = 0;
 function scheduleSave() {
