@@ -1,6 +1,6 @@
 name: Release
 
-# Si avvia quando crei un tag di versione, ad esempio:  git tag v1.0.0 && git push origin v1.0.0
+# Si avvia quando crei un tag di versione, ad esempio:  git tag v2.0.0 && git push origin v2.0.0
 # (oppure a mano dalla scheda Actions per provare la compilazione senza pubblicare nulla)
 on:
   push:
@@ -16,34 +16,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Cache di Cargo
+        uses: actions/cache@v4
         with:
-          python-version: '3.12'
-          cache: pip
-
-      - name: Installa le dipendenze
-        run: python -m pip install -r requirements.txt
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
 
       - name: Imposta il numero di versione dal tag
-        if: github.ref_type == 'tag'
         run: |
-          $v = $env:GITHUB_REF_NAME.TrimStart('v')
-          "__version__ = `"$v`"" | Out-File -FilePath src/appversion.py -Encoding ascii
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $toml = Get-Content src-tauri/Cargo.toml -Raw
+            $toml = [regex]::Replace($toml, '(?m)^version = "[^"]*"', "version = `"$v`"", 1)
+            Set-Content src-tauri/Cargo.toml $toml -NoNewline -Encoding utf8
+          }
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Compila il programma
+      - name: Compila il programma (Rust + Tauri)
         run: ./build.ps1
 
       - name: Installa Inno Setup
         run: choco install innosetup --no-progress -y
 
       - name: Crea l'installer
-        run: |
-          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
-          ./installer/build-installer.ps1 -Version $v -SkipBuild
-          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        run: ./installer/build-installer.ps1 -Version $env:VERSION -SkipBuild
 
       - name: Crea la versione portatile (zip)
-        run: Compress-Archive -Path dist/SpotifyOrbit -DestinationPath "SpotifyOrbit-portable-$env:VERSION.zip"
+        run: Compress-Archive -Path dist/SpotifyOrbit.exe -DestinationPath "SpotifyOrbit-portable-$env:VERSION.zip"
 
       - uses: actions/upload-artifact@v4
         with:

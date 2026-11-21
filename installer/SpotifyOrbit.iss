@@ -36,8 +36,12 @@ en.LaunchApp=Start Spotify Orbit
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[InstallDelete]
+; aggiornando dalla versione Python (1.x) toglie il vecchio motore: ora il programma è un solo file
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
-Source: "..\dist\SpotifyOrbit\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\dist\SpotifyOrbit.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\SpotifyOrbit.exe"
@@ -71,5 +75,8 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
     if MsgBox(CustomMessage('DeleteData'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+    begin
       DelTree(ExpandConstant('{userappdata}\SpotifyOrbit'), True, True, True);
+      DelTree(ExpandConstant('{localappdata}\com.spotifyorbit.wallpaper'), True, True, True);   { dati di WebView2 }
+    end;
 end;

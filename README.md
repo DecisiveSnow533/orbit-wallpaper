@@ -28,12 +28,12 @@ Scarica dalla pagina [Releases](../../releases):
 
 Dopo l'avvio compare un'icona vicino all'orologio: **clic** per le impostazioni, **clic destro** per profili, pausa dello sfondo, riavvio e uscita.
 
-> **Avvisi di Windows / antivirus.** Il programma non è firmato digitalmente, quindi SmartScreen può mostrare «Windows ha protetto il PC» (clicca *Ulteriori informazioni → Esegui comunque*). Gli eseguibili creati con PyInstaller a volte vengono segnalati per errore da alcuni antivirus. Il codice è qui sotto, puoi controllarlo o compilarlo da solo.
+> **Avvisi di Windows / antivirus.** Il programma non è firmato digitalmente, quindi SmartScreen può mostrare «Windows ha protetto il PC» (clicca *Ulteriori informazioni → Esegui comunque*). Il codice è qui sotto: puoi controllarlo o compilarlo da solo.
 
 ### Requisiti
 
 - Windows 11 (provato su 24H2). Su Windows 10 il metodo di aggancio al desktop è diverso e **non è stato provato**.
-- Microsoft Edge (c'è in Windows) per mostrare l'interfaccia. Se manca, il programma prova con Chrome, ma non è stato verificato.
+- WebView2 (il motore di Edge integrato in Windows 11 e negli aggiornamenti di Windows 10) per mostrare l'interfaccia.
 
 ## Coda di Spotify (facoltativo)
 
@@ -54,29 +54,35 @@ All'avvio (e poi ogni 12 ore) il programma controlla se su GitHub è uscita una 
 - **Versione portatile (zip):** l'aggiornamento automatico funziona solo con la versione installata; con quella portatile la barra apre la pagina della release per scaricare il nuovo zip.
 - Puoi disattivare l'avviso in *Impostazioni → Sfondo del desktop → Avvisami quando esce una nuova versione*, oppure cercare a mano dal menu dell'icona («Cerca aggiornamenti…»).
 - Le versioni precedenti alla 1.2.0 mostrano ancora il vecchio avviso con il solo link alla pagina di download.
+- Dalla versione Python (1.x) si passa alla 2.x con lo stesso aggiornamento: l'installer toglie il vecchio motore e tiene impostazioni e collegamento a Spotify.
 
 ## Privacy
 
-Tutto gira in locale: il programma apre un server solo su `127.0.0.1`. Le uniche connessioni in uscita sono quelle verso LRCLIB (ricerca dei testi, con titolo e artista del brano), verso GitHub (controllo aggiornamenti, richiesta anonima, disattivabile) e, se la attivi, verso Spotify per la coda.
+Tutto gira in locale: il programma apre un server solo su `127.0.0.1`. Le uniche connessioni in uscita sono quelle verso LRCLIB (ricerca dei testi, con titolo e artista del brano), verso GitHub (controllo aggiornamenti, richiesta anonima, disattivabile) e, se la attivi, verso Spotify per la coda. Impostazioni, token di Spotify e log stanno in `%APPDATA%\SpotifyOrbit`; i dati di WebView2 (cache, cronologia dei brani recenti) in `%LOCALAPPDATA%\com.spotifyorbit.wallpaper`.
+
+## Com'è fatto
+
+- **Motore in Rust** (`src-tauri/src`): legge brano e copertina da Windows (SMTC), ascolta l'uscita audio (WASAPI loopback, FFT a 64 bande), gestisce impostazioni, profili, coda di Spotify e aggiornamenti, e serve l'interfaccia con un piccolo server locale su `127.0.0.1:8777` (API + flusso in tempo reale SSE).
+- **Finestre con [Tauri](https://tauri.app) 2 / WebView2**: lo sfondo (una finestra per monitor, agganciata dietro alle icone del desktop), le impostazioni e la modalità a schermo intero. Le finestre appartengono al programma: quando si chiude, si chiudono anche loro.
+- **Interfaccia** (`src/ui`): HTML, CSS e JavaScript (WebGL per l'aurora, canvas per anello, spettro e sfondi).
+
+La versione Python precedente (1.x) è nel ramo [`python`](../../tree/python).
 
 ## Compilare da sorgente
 
-Serve Python 3.12 su Windows.
+Servono [Rust](https://rustup.rs) e gli strumenti C++ di Visual Studio (Build Tools, carico di lavoro «Sviluppo di applicazioni desktop con C++»).
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-.\build.ps1                                   # crea dist\SpotifyOrbit\SpotifyOrbit.exe
-.\installer\build-installer.ps1 -SkipBuild    # facoltativo: crea l'installer (serve Inno Setup 6)
+.uild.ps1                                   # crea dist\SpotifyOrbit.exe (circa 12 MB, un solo file)
+.\installeruild-installer.ps1 -SkipBuild    # facoltativo: crea l'installer (serve Inno Setup 6)
 ```
 
-Per provare senza compilare: `.\.venv\Scripts\python src\server.py`.
+Per provare durante lo sviluppo: `cd src-tauri; cargo run`.
 
-Il codice è in `src/` (`server.py` motore e server locale, `desktop.py` aggancio al desktop, `ui/` interfaccia). Pubblicare una versione: crea un tag `vX.Y.Z` e GitHub Actions (`.github/workflows/release.yml`) compila installer e zip.
+Pubblicare una versione: crea un tag `vX.Y.Z` e GitHub Actions (`.github/workflows/release.yml`) compila exe, installer e zip.
 
 ## Limiti noti
 
-- I brani «recenti» sono ricordati per ogni finestra-sfondo: con più monitor ciascuno parte dalla propria cronologia.
 - La coda mostra al massimo 8 brani e si aggiorna a intervalli (5–30 s a scelta).
 
 ---
@@ -86,8 +92,9 @@ Il codice è in `src/` (`server.py` motore e server locale, `desktop.py` agganci
 **Spotify Orbit** is an animated, audio-reactive desktop wallpaper for Windows (it sits *behind* your desktop icons): album art with a live spectrum ring, colors taken from the cover, time-synced lyrics, clock, and a widget with recent tracks or your Spotify queue. Multi-monitor, saveable profiles, 9 backgrounds, tray icon for settings. Not affiliated with Spotify.
 
 - **Install:** grab the installer or the portable zip from [Releases](../../releases). The app is unsigned, so SmartScreen may warn you.
-- **Requirements:** Windows 11 (tested on 24H2), Microsoft Edge.
+- **Requirements:** Windows 11 (tested on 24H2) with WebView2 (built in).
 - **Queue (optional):** Windows doesn't expose Spotify's upcoming tracks, so the real queue needs your own Spotify developer app (PKCE flow, read-only scopes, redirect URI `http://127.0.0.1:8777/callback`). Everything else works without it.
-- **Build:** `python -m venv .venv`, `pip install -r requirements.txt`, `.\build.ps1`, optionally `.\installer\build-installer.ps1 -SkipBuild` (needs Inno Setup 6).
+- **Tech:** Rust engine (SMTC, WASAPI loopback + FFT, local HTTP/SSE server, Spotify PKCE, self-update) with Tauri 2 / WebView2 windows; HTML/CSS/JS UI. The previous Python version lives in the `python` branch.
+- **Build:** install Rust and the Visual Studio C++ Build Tools, then `.\build.ps1` (and optionally `.\installer\build-installer.ps1 -SkipBuild`, needs Inno Setup 6).
 - **Updates:** the app checks GitHub for a newer release (anonymous request, can be turned off) and shows a bar at the top of the settings window. «Aggiorna ora» downloads the installer, verifies its SHA-256, installs silently and restarts the app (installed version only; the portable zip opens the release page instead). Nothing is installed without you pressing the button.
 - **Privacy:** everything runs locally; the only outgoing requests are lyrics lookups (LRCLIB), the update check (GitHub) and, if enabled, the Spotify queue.

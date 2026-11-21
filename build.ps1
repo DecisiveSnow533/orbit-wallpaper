@@ -1,11 +1,14 @@
-# Ricostruisce SpotifyOrbit.exe (esegui da PowerShell: .\build.ps1)
+# Compila Spotify Orbit (Rust + Tauri): .\build.ps1   ->  dist\SpotifyOrbit.exe
+# Serve Rust (https://rustup.rs) con gli strumenti C++ di Visual Studio (Build Tools).
 $r = $PSScriptRoot
 Get-Process SpotifyOrbit -ErrorAction SilentlyContinue | Stop-Process -Force
-# usa l'ambiente virtuale del progetto se c'è, altrimenti il Python disponibile (es. su GitHub Actions)
-$py = Join-Path $r ".venv\Scripts\python.exe"
-if (-not (Test-Path $py)) { $py = "python" }
-& $py -m PyInstaller --noconfirm --clean --onedir --noconsole --name SpotifyOrbit `
-  --icon "$r\src\app.ico" --add-data "$r\src\ui;ui" --collect-submodules winrt --collect-binaries winrt `
-  --hidden-import pyaudiowpatch --hidden-import pystray._win32 --hidden-import desktop --distpath "$r\dist" --workpath "$r\build" --specpath "$r\build" "$r\src\server.py"
-if ($LASTEXITCODE -ne 0) { throw "PyInstaller non è riuscito (codice $LASTEXITCODE)" }
-Write-Host "Fatto: $r\dist\SpotifyOrbit\SpotifyOrbit.exe"
+$cargo = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
+if (-not (Test-Path $cargo)) { $cargo = "cargo" }
+Push-Location "$r\src-tauri"
+try {
+    & $cargo build --release
+    if ($LASTEXITCODE -ne 0) { throw "cargo build non è riuscito (codice $LASTEXITCODE)" }
+} finally { Pop-Location }
+New-Item -ItemType Directory -Force "$r\dist" | Out-Null
+Copy-Item "$r\src-tauri\target\release\SpotifyOrbit.exe" "$r\dist\SpotifyOrbit.exe" -Force
+Write-Host "Fatto: $r\dist\SpotifyOrbit.exe"

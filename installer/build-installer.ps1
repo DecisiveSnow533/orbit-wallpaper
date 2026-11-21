@@ -1,12 +1,15 @@
 # Crea l'installer: .\installer\build-installer.ps1 [-Version 1.2.3] [-SkipBuild]
 # Richiede Inno Setup 6 (https://jrsoftware.org/isinfo.php). Il risultato è in dist-installer\.
 param(
-    [string]$Version = "1.0.0",
+    [string]$Version = "",
     [switch]$SkipBuild
 )
 $root = Split-Path -Parent $PSScriptRoot
+if (-not $Version) {     # di base la versione scritta in src-tauri\Cargo.toml
+    $Version = (Select-String -Path "$root\src-tauri\Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+}
 if (-not $SkipBuild) { & "$root\build.ps1" }
-if (-not (Test-Path "$root\dist\SpotifyOrbit\SpotifyOrbit.exe")) { throw "Manca dist\SpotifyOrbit\SpotifyOrbit.exe: esegui prima build.ps1" }
+if (-not (Test-Path "$root\dist\SpotifyOrbit.exe")) { throw "Manca dist\SpotifyOrbit.exe: esegui prima build.ps1" }
 
 $candidates = @(
     "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
