@@ -46,9 +46,13 @@ Windows non sa quali brani arrivano dopo, quindi la coda vera si legge dal tuo a
 
 L'accesso usa il flusso PKCE: non servono segreti, vengono richiesti solo i permessi di lettura (`user-read-playback-state`, `user-read-currently-playing`). Client ID e token restano sul tuo PC in `%APPDATA%\SpotifyOrbit\spotify.json`; «Scollega» li cancella. Le app Spotify in modalità sviluppo possono richiedere un account Premium per il proprietario dell'app.
 
+## Aggiornamenti
+
+All'avvio (e poi ogni 12 ore) il programma controlla se su GitHub è uscita una versione più nuova e, se sì, apre una finestra che te lo consiglia, con i pulsanti «Scarica l'aggiornamento», «Più tardi» e «Salta questa versione». Puoi disattivare l'avviso in *Impostazioni → Sfondo del desktop → Avvisami quando esce una nuova versione*, oppure cercare a mano dal menu dell'icona («Cerca aggiornamenti…»). Non scarica né installa nulla da solo: apre la pagina della release e decidi tu.
+
 ## Privacy
 
-Tutto gira in locale: il programma apre un server solo su `127.0.0.1`. Le uniche connessioni in uscita sono quelle verso LRCLIB (ricerca dei testi, con titolo e artista del brano) e, se la attivi, verso Spotify per la coda.
+Tutto gira in locale: il programma apre un server solo su `127.0.0.1`. Le uniche connessioni in uscita sono quelle verso LRCLIB (ricerca dei testi, con titolo e artista del brano), verso GitHub (controllo aggiornamenti, richiesta anonima, disattivabile) e, se la attivi, verso Spotify per la coda.
 
 ## Compilare da sorgente
 
@@ -80,4 +84,5 @@ Il codice è in `src/` (`server.py` motore e server locale, `desktop.py` agganci
 - **Requirements:** Windows 11 (tested on 24H2), Microsoft Edge.
 - **Queue (optional):** Windows doesn't expose Spotify's upcoming tracks, so the real queue needs your own Spotify developer app (PKCE flow, read-only scopes, redirect URI `http://127.0.0.1:8777/callback`). Everything else works without it.
 - **Build:** `python -m venv .venv`, `pip install -r requirements.txt`, `.\build.ps1`, optionally `.\installer\build-installer.ps1 -SkipBuild` (needs Inno Setup 6).
-- **Privacy:** everything runs locally; the only outgoing requests are lyrics lookups (LRCLIB) and, if enabled, the Spotify queue.
+- **Updates:** the app checks GitHub for a newer release (anonymous request, can be turned off) and opens a window recommending the update. It never downloads or installs anything by itself.
+- **Privacy:** everything runs locally; the only outgoing requests are lyrics lookups (LRCLIB), the update check (GitHub) and, if enabled, the Spotify queue.

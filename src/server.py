@@ -27,6 +27,8 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
+from appversion import __version__ as VERSION
+
 APP = "SpotifyOrbit"
 PORT = 8777
 DATA = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), APP)
@@ -619,6 +621,63 @@ def sp_page(ok, msg):
 
 
 # ----------------------------------------------------------------------------
+# Aggiornamenti: confronta la versione con l'ultima release pubblica su GitHub
+# ----------------------------------------------------------------------------
+UPDATE_API = "https://api.github.com/repos/DecisiveSnow533/orbit-wallpaper/releases/latest"
+UPDATE_PREFIX = "https://github.com/DecisiveSnow533/orbit-wallpaper/"
+UPD = {"latest": "", "url": "", "notes": "", "checked": 0.0, "error": "", "shown": ""}
+
+
+def ver_tuple(s):
+    m = re.match(r"\s*v?(\d+)\.(\d+)\.(\d+)", s or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def update_available():
+    new, cur = ver_tuple(UPD["latest"]), ver_tuple(VERSION)
+    return bool(new and cur and new > cur)
+
+
+def update_check():
+    """Chiede a GitHub l'ultima release (richiesta anonima: nessun dato dell'utente). True se è più nuova."""
+    req = urllib.request.Request(UPDATE_API, headers={"User-Agent": "orbit-wallpaper-update-check", "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        d = json.loads(r.read())
+    tag, url = str(d.get("tag_name", "")), str(d.get("html_url", ""))
+    UPD["checked"], UPD["error"] = time.time(), ""
+    if not ver_tuple(tag) or not url.startswith(UPDATE_PREFIX):
+        return False
+    UPD["latest"], UPD["url"], UPD["notes"] = tag.lstrip("vV"), url, str(d.get("body") or "")[:1500]
+    return update_available()
+
+
+def update_thread():
+    time.sleep(25)                       # lascia partire tutto prima di fare richieste in rete
+    while True:
+        try:
+            if S.cfg.get("checkUpdates", True) and update_check():
+                if UPD["latest"] not in (S.cfg.get("skipVersion"), UPD["shown"]):
+                    UPD["shown"] = UPD["latest"]
+                    open_update_window()
+        except Exception as e:
+            UPD["error"] = str(e)
+            log("controllo aggiornamenti:", e)
+        time.sleep(12 * 3600)
+
+
+def check_now():
+    """Controllo a richiesta (menu dell'icona / pannello). Ritorna (stato, messaggio)."""
+    try:
+        if update_check():
+            open_update_window()
+            return "new", f"Disponibile la versione {UPD['latest']}"
+        return "ok", f"Hai già l'ultima versione ({VERSION})"
+    except Exception as e:
+        UPD["error"] = str(e)
+        return "error", "Non riesco a controllare gli aggiornamenti (sei online?)"
+
+
+# ----------------------------------------------------------------------------
 # HTTP
 # ----------------------------------------------------------------------------
 MIME ={".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -669,6 +728,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 mons = []
             return self._send(200, json.dumps(mons).encode("utf-8"))
+        if p == "/api/update":
+            d = {"current": VERSION, "latest": UPD["latest"], "available": update_available(), "notes": UPD["notes"],
+                 "url": UPD["url"], "checked": UPD["checked"], "error": UPD["error"]}
+            return self._send(200, json.dumps(d, ensure_ascii=False).encode("utf-8"))
         if p == "/api/spotify/status":
             d = {"state": S.sp_state, "msg": S.sp_msg, "cid": SP["cid"], "redirect": SP_REDIRECT, "count": len(S.sp_items)}
             return self._send(200, json.dumps(d, ensure_ascii=False).encode("utf-8"))
@@ -723,6 +786,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 log("spotify login", traceback.format_exc())
                 return self._send(500, b'{"ok":false,"error":"Errore inatteso"}')
+        if u.path == "/api/update/open":            # apre la pagina della release (indirizzo preso da GitHub e verificato)
+            if UPD["url"].startswith(UPDATE_PREFIX):
+                import webbrowser
+                webbrowser.open(UPD["url"])
+            return self._send(200, b"{}")
+        if u.path == "/api/update/skip":
+            if UPD["latest"]:
+                write_settings(dict(S.cfg, skipVersion=UPD["latest"]))
+            return self._send(200, b"{}")
+        if u.path == "/api/update/check":
+            st, msg = check_now()
+            return self._send(200, json.dumps({"state": st, "msg": msg}, ensure_ascii=False).encode("utf-8"))
         if u.path == "/api/spotify/dashboard":      # indirizzo fisso, nessun parametro dall'esterno
             import webbrowser
             webbrowser.open("https://developer.spotify.com/dashboard")
@@ -843,6 +918,7 @@ def port_in_use(port):
 URL = f"http://127.0.0.1:{PORT}/"
 WALLS = {}          # indice monitor -> {"proc", "hwnd", "parent", "mon", "last"}
 SETWIN = {"proc": None}
+UPDWIN = {"proc": None}
 FULLWIN = {"proc": None}
 TRAY = {"icon": None}
 
@@ -951,6 +1027,20 @@ def open_settings():
     SETWIN["proc"] = launch_edge(URL + "?settings", "browser-set", ["--window-size=1180,780"])
 
 
+def open_update_window():
+    p = UPDWIN["proc"]
+    if p is not None and p.poll() is None:
+        try:
+            import desktop
+            h = desktop.find_window(title_part="Spotify Orbit — Aggiornamento")
+            if h:
+                desktop.focus(h)
+        except Exception:
+            pass
+        return
+    UPDWIN["proc"] = launch_edge(URL + "update.html", "browser-upd", ["--window-size=560,520"])
+
+
 def open_fullwindow():
     p = FULLWIN["proc"]
     if p is not None and p.poll() is None:
@@ -965,6 +1055,7 @@ def shutdown():
     except Exception:
         pass
     kill_tree(SETWIN["proc"])
+    kill_tree(UPDWIN["proc"])
     kill_tree(FULLWIN["proc"])
     try:
         if TRAY["icon"] is not None:
@@ -1004,6 +1095,16 @@ def run_tray():
     def restart_wall(icon, item):
         stop_wall()
 
+    def check_updates_tray(icon, item):
+        def run():
+            st, msg = check_now()
+            if st != "new":                     # se c'è un aggiornamento si apre già la finestra
+                try:
+                    icon.notify(msg, "Spotify Orbit")
+                except Exception:
+                    pass
+        threading.Thread(target=run, daemon=True).start()
+
     def profile_items():
         ps = saved_profiles()
         if not ps:
@@ -1024,6 +1125,8 @@ def run_tray():
         pystray.MenuItem("Apri a schermo intero (finestra)", lambda i, it: open_fullwindow()),
         pystray.MenuItem("Riavvia lo sfondo", restart_wall),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Cerca aggiornamenti…", check_updates_tray),
+        pystray.MenuItem(f"Versione {VERSION}", lambda i, it: None, enabled=False),
         pystray.MenuItem("Esci", lambda i, it: shutdown()),
     )
     icon = pystray.Icon(APP, img, "Spotify Orbit", menu)
@@ -1067,6 +1170,7 @@ def main():
     threading.Thread(target=audio_thread, daemon=True).start()
     threading.Thread(target=sp_thread, daemon=True).start()
     if not nowindow:
+        threading.Thread(target=update_thread, daemon=True).start()
         threading.Thread(target=wall_loop, daemon=True).start()
         try:
             run_tray()

@@ -25,11 +25,11 @@ const DEFAULTS = {
   monitor: '0', fps: '60', pauseCovered: true, onlySpotify: false, autostart: false,
   wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wGlass: true, wThumbs: true, wArtist: true, wNow: true, queueEvery: '7',
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
-  profiles: [], profile: '', monitorProfiles: {},
+  profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
 };
 let cfg = { ...DEFAULTS };
 /* Un profilo salva solo l'aspetto: le scelte legate al PC (monitor, avvio con Windows…) restano fuori. */
-const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles']);
+const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion']);
 /* Con «tutti i monitor» ogni schermo può avere il suo profilo: la pagina dello sfondo lo applica sopra le impostazioni. */
 function effective(c) {
   if (!WALL || MON === undefined || c.monitor !== 'all') return c;
@@ -112,6 +112,7 @@ const SCHEMA = [
     { k: 'pauseCovered', type: 'toggle', label: 'Pausa quando una finestra copre il desktop' },
     { k: 'onlySpotify', type: 'toggle', label: 'Ascolta solo Spotify' },
     { k: 'autostart', type: 'toggle', label: 'Avvia con Windows' },
+    { k: 'checkUpdates', type: 'toggle', label: 'Avvisami quando esce una nuova versione' },
   ] },
 ];
 
@@ -167,6 +168,10 @@ function buildPanel() {
   const mk = (txt, fn, cls) => { const b = document.createElement('button'); b.textContent = txt; if (cls) b.className = cls; b.onclick = fn; btns.appendChild(b); };
   if (!SETWIN) mk('Schermo intero', toggleFS);
   mk('Anteprima con musica finta', () => (demo.on ? stopDemo() : startDemo()));
+  mk('Cerca aggiornamenti', () => {
+    toast('Controllo…');
+    fetch('/api/update/check', { method: 'POST' }).then((r) => r.json()).then((d) => toast(d.msg)).catch(() => toast('Il programma non risponde'));
+  });
   mk('Ripristina', () => { cfg = { ...DEFAULTS, profiles: cfg.profiles || [], monitorProfiles: cfg.monitorProfiles || {} }; refreshPanel(); applyCfg(); scheduleSave(); toast('Impostazioni ripristinate (i profili salvati restano)'); });
   mk('Chiudi il programma', quitApp, 'danger');
   p.appendChild(btns);
@@ -176,6 +181,7 @@ function buildPanel() {
     : '<kbd>S</kbd> impostazioni · <kbd>F</kbd> schermo intero · <kbd>Spazio</kbd> play/pausa · <kbd>←</kbd> <kbd>→</kbd> brano precedente/successivo · <kbd>[</kbd> <kbd>]</kbd> sincronia testi · clic sulla copertina = play/pausa';
   p.appendChild(hint);
   refreshPanel();
+  fetch('/api/update').then((r) => r.json()).then((d) => { const s = p.querySelector('.sub'); if (s && d.current) s.textContent += ' · versione ' + d.current; }).catch(() => {});
   fetch('/api/monitors').then((r) => r.json()).then((list) => {          // elenco reale dei monitor
     prof.mons = list;
     const row = rows.find((x) => x.it.k === 'monitor'); if (!row || !list.length) return;
