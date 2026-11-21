@@ -854,22 +854,57 @@ function renderCards() {
   recent(cfg.wCount).forEach((h, i) => addCard(box, h.title, h.artist + (h.t ? ' · ' + ago(h.t) : ''), h.thumb, false, Math.max(0.4, 0.9 - (i + 1) * 0.12)));
 }
 
-function renderQueue() {                                   // in riproduzione in alto, poi i prossimi brani veri di Spotify
-  const box = $('#cards');
-  if (sp.state !== 'ok') {                                 // non collegato: mostra i recenti e un invito discreto
-    renderCards();
-    box.appendChild(el('div', 'qh', sp.state === 'error' ? 'Coda non disponibile · vedi Impostazioni' : 'Collega Spotify nelle impostazioni per la coda'));
-    return;
+/* ---------- coda di Spotify ----------
+ * intestazione · brano in corso (riga sottile) · «Subito dopo» in evidenza · elenco dei successivi con l'ora di partenza */
+const mmss = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+function qThumb(url) { const th = el('div', 'th'); if (url) th.style.backgroundImage = `url("${url}")`; return th; }
+function qText(title, artist) { const tx = el('div', 'tx'); tx.appendChild(el('b', '', title)); if (artist) tx.appendChild(el('em', '', artist)); return tx; }
+function renderQueue() {
+  const box = $('#queue'); box.textContent = '';
+  const ok = sp.state === 'ok';
+  const next = ok ? sp.items.filter((q) => q.t !== state.title) : [];   // subito dopo un cambio brano la coda è ancora quella vecchia
+  const hd = el('div', 'qhd'); hd.appendChild(el('i', 'dot')); hd.appendChild(el('span', '', 'In coda'));
+  if (next.length) hd.appendChild(el('span', 'cnt', next.length === 1 ? '1 brano' : next.length + ' brani'));
+  box.appendChild(hd);
+  if (state.title && cfg.wNow) {                           // in riproduzione: riga sottile con equalizzatore e tempo che manca
+    const r = el('div', 'qnow'); const eq = el('div', 'eq'); for (let k = 0; k < 4; k++) eq.appendChild(el('i'));
+    r.appendChild(eq); r.appendChild(qText(state.title, state.artist)); r.appendChild(el('time', 'rem'));
+    const bar = el('div', 'bar'); bar.appendChild(el('i')); r.appendChild(bar);
+    box.appendChild(r);
   }
-  box.textContent = ''; box.classList.add('q');
-  if (state.title && cfg.wNow) addCard(box, state.title, state.artist, state.thumb, true, 1);
-  const next = sp.items.filter((q) => q.t !== state.title);      // subito dopo un cambio brano la coda è ancora quella vecchia
-  if (next.length) {
-    box.appendChild(el('div', 'qh', 'Prossimi'));
-    next.slice(0, cfg.wCount).forEach((q, i) => addCard(box, q.t, q.a, q.i, false, Math.max(0.4, 0.92 - i * 0.1)));
-  } else if (state.title) {
-    box.appendChild(el('div', 'qh', 'Nessun brano in coda'));
+  if (!ok) {
+    box.appendChild(el('div', 'qmsg', sp.state === 'error' ? 'Coda non disponibile · vedi Impostazioni' : 'Collega Spotify nelle impostazioni per vedere la coda'));
+    updateQueueTimes(); return;
   }
+  if (!next.length) { box.appendChild(el('div', 'qmsg', 'Nessun brano in coda')); updateQueueTimes(); return; }
+  let off = 0;                                              // secondi tra la fine del brano in corso e l'inizio di questo
+  const shown = next.slice(0, cfg.wCount);
+  shown.forEach((q, i) => {
+    const hero = i === 0 && cfg.wStyle !== 'compact';
+    const r = el('div', hero ? 'qnext' : 'qrow'); r.dataset.off = off; r.style.setProperty('--k', i);
+    if (!hero) r.appendChild(el('span', 'n', String(i + 1)));
+    r.appendChild(qThumb(q.i));
+    const tx = qText(q.t, q.a);
+    if (hero) { const l = el('span', 'lbl'); l.appendChild(document.createTextNode('Subito dopo')); l.appendChild(el('time', 'at')); tx.prepend(l); }
+    r.appendChild(tx);
+    if (!hero) r.appendChild(el('time', 'at'));
+    if (!hero) r.style.opacity = Math.max(0.35, 1 - (i - 1) * 0.13).toFixed(2);
+    box.appendChild(r);
+    off += q.d || 0;
+    if (!q.d) off = NaN;                                      // senza durata non si può calcolare quando partono i successivi
+  });
+  updateQueueTimes();
+}
+// aggiorna ogni secondo «tra 3:20» e il tempo che manca al brano in corso, senza ridisegnare la coda
+function updateQueueTimes() {
+  if (cfg.sideWidget !== 'queue') return;
+  const box = $('#queue'), d = state.duration, left = d ? Math.max(0, d - getPos()) : NaN;
+  const rem = box.querySelector('.qnow .rem'); if (rem) rem.textContent = isNaN(left) ? '' : '−' + mmss(left);
+  const bar = box.querySelector('.qnow .bar i'); if (bar) bar.style.width = d ? (getPos() / d * 100).toFixed(1) + '%' : '0%';
+  box.querySelectorAll('[data-off]').forEach((r) => {
+    const t = r.querySelector('time.at'), s = left + Number(r.dataset.off);
+    if (t) t.textContent = isNaN(s) ? '' : (r.classList.contains('qnext') ? ' · tra ' : 'tra ') + mmss(s);
+  });
 }
 
 function renderTimeline() {
@@ -1284,6 +1319,7 @@ let lastMin = -1;
 function tickClock() {
   const n = new Date();
   if (n.getMinutes() !== lastMin) { lastMin = n.getMinutes(); if (cfg.sideWidget === 'cards' || cfg.sideWidget === 'timeline') renderList(); }   // aggiorna "x min fa"
+  updateQueueTimes();
   const o = { hour: '2-digit', minute: '2-digit', hour12: !cfg.clock24 };
   if (cfg.showSeconds) o.second = '2-digit';
   $('#clock .time').textContent = n.toLocaleTimeString('it-IT', o);

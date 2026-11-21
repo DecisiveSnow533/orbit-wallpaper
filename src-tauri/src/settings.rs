@@ -6,12 +6,41 @@ fn path() -> std::path::PathBuf {
     data_dir().join("settings.json")
 }
 
+fn backup_path() -> std::path::PathBuf {
+    data_dir().join("settings.bak.json")
+}
+
+/// Legge un file di impostazioni: None se manca; Err se c'è ma non è leggibile.
+fn read_cfg(p: &std::path::Path) -> Option<Result<Value, String>> {
+    let bytes = std::fs::read(p).ok()?;
+    let b = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes); // eventuale BOM UTF-8
+    Some(match serde_json::from_slice::<Value>(b) {
+        Ok(v) if v.is_object() => Ok(v),
+        Ok(_) => Err("non è un oggetto".into()),
+        Err(e) => Err(e.to_string()),
+    })
+}
+
+/// Carica le impostazioni. Non perde mai un file esistente: se è illeggibile lo mette da parte
+/// (settings.broken-<ora>.json) e riparte dalla copia di sicurezza, se c'è.
 pub fn load() {
-    let v = std::fs::read_to_string(path())
-        .ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .filter(|v| v.is_object())
-        .unwrap_or(Value::Object(Map::new()));
+    let v = match read_cfg(&path()) {
+        Some(Ok(v)) => v,
+        other => {
+            if let Some(Err(e)) = other {
+                let broken = data_dir().join(format!("settings.broken-{}.json", crate::state::now_secs() as u64));
+                let _ = std::fs::rename(path(), &broken);
+                log(format!("impostazioni illeggibili ({e}): messe da parte in {}", broken.display()));
+            }
+            match read_cfg(&backup_path()) {
+                Some(Ok(v)) => {
+                    log("impostazioni riprese dalla copia di sicurezza");
+                    v
+                }
+                _ => Value::Object(Map::new()),
+            }
+        }
+    };
     *S.cfg.write().unwrap() = v;
 }
 
@@ -24,6 +53,10 @@ pub fn write(v: Value, cid: &str) -> std::io::Result<()> {
     let p = path();
     let tmp = p.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&v).unwrap_or_default())?;
+    // copia di sicurezza della versione precedente (solo se era valida: non si salva sopra a una buona una rotta)
+    if matches!(read_cfg(&p), Some(Ok(_))) {
+        let _ = std::fs::copy(&p, backup_path());
+    }
     std::fs::rename(&tmp, &p)?;
     let new_auto = v.get("autostart").and_then(Value::as_bool).unwrap_or(false);
     *S.cfg.write().unwrap() = v;

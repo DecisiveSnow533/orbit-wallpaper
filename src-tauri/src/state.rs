@@ -76,6 +76,8 @@ pub struct QueueItem {
     pub t: String,
     pub a: String,
     pub i: String,
+    /// durata in secondi (0 se Spotify non la dà)
+    pub d: f64,
 }
 
 pub struct SpState {

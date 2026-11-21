@@ -9,6 +9,11 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
+/// identifica questo avvio del programma (millisecondi dall'epoca): rende unici gli indirizzi delle copertine
+static RUN_ID: std::sync::LazyLock<u128> = std::sync::LazyLock::new(|| {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+});
+
 pub fn pct(s: &str) -> String {
     let mut o = String::new();
     for b in s.bytes() {
@@ -170,7 +175,8 @@ fn get(s: &mut TcpStream, req: &Req, app: &AppHandle) {
             } else {
                 let (art, m) = (t.art.clone(), t.art_mime.clone());
                 drop(t);
-                send(s, 200, &m, &art, &[("Cache-Control", "max-age=3600")]);
+                // niente cache: la copertina cambia a ogni brano e WebView2 tiene la cache anche tra un avvio e l'altro
+                send(s, 200, &m, &art, &[("Cache-Control", "no-store")]);
             }
         }
         "/api/settings" => send_json(s, 200, &S.cfg.read().unwrap().clone()),
@@ -295,7 +301,7 @@ fn stream(s: &mut TcpStream, req: &Req) {
             let sp = S.sp.lock().unwrap();
             if sp.ver != sent_q {
                 sent_q = sp.ver;
-                let items: Vec<Value> = sp.items.iter().map(|i| json!({"t": i.t, "a": i.a, "i": i.i})).collect();
+                let items: Vec<Value> = sp.items.iter().map(|i| json!({"t": i.t, "a": i.a, "i": i.i, "d": i.d.round()})).collect();
                 out.push_str(&format!("event: queue\ndata: {}\n\n", json!({"state": sp.state, "msg": sp.msg, "items": items})));
             }
         }
@@ -303,7 +309,9 @@ fn stream(s: &mut TcpStream, req: &Req) {
             let t = S.track.lock().unwrap();
             if t.ver != sent_ver {
                 sent_ver = t.ver;
-                let m = json!({"title": t.title, "artist": t.artist, "album": t.album, "app": t.app, "artv": t.art_ver,
+                // indirizzo della copertina diverso a ogni avvio: «?v=1» di oggi non è «?v=1» di ieri
+                let artv = format!("{}-{}", *RUN_ID, t.art_ver);
+                let m = json!({"title": t.title, "artist": t.artist, "album": t.album, "app": t.app, "artv": artv,
                                "hasArt": !t.art.is_empty(), "media": S.media_ok.load(Ordering::SeqCst)});
                 out.push_str(&format!("event: track\ndata: {m}\n\n"));
             }

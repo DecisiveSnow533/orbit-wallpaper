@@ -243,7 +243,8 @@ fn fetch() -> Option<f64> {
                                 a.push(it["show"]["publisher"].as_str().or(it["show"]["name"].as_str()).unwrap_or("").to_string());
                             }
                             let imgs = if it["album"]["images"].is_array() { &it["album"]["images"] } else if it["images"].is_array() { &it["images"] } else { &it["show"]["images"] };
-                            QueueItem { t: it["name"].as_str().unwrap_or("").to_string(), a: a.join(", "), i: img(imgs) }
+                            let d = it["duration_ms"].as_f64().unwrap_or(0.0) / 1000.0;
+                            QueueItem { t: it["name"].as_str().unwrap_or("").to_string(), a: a.join(", "), i: img(imgs), d }
                         })
                         .collect()
                 })
