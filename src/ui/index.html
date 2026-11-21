@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Spotify Orbit</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-aurora">
+  <canvas id="aurora"></canvas>
+  <canvas id="bg2d"></canvas>
+  <div id="blur"></div>
+  <div id="vig"></div>
+  <canvas id="fx"></canvas>
+  <canvas id="spec"></canvas>
+
+  <div id="stage">
+    <div id="glow"></div>
+    <canvas id="ring"></canvas>
+    <div id="art"><div class="img"></div></div>
+
+    <div id="caption">
+      <div class="t"></div>
+      <div class="a"></div>
+      <div class="p"><i></i></div>
+      <div class="tm"></div>
+    </div>
+
+    <div id="lyrics">
+      <div class="stack"></div>
+      <div class="next"></div>
+    </div>
+
+    <div id="disc">
+      <div class="vinyl"><div class="label"><div class="img"></div></div></div>
+      <div class="list"></div>
+    </div>
+
+    <div id="cards"></div>
+    <div id="tl"></div>
+
+    <div id="clock" class="pos-tr">
+      <div class="time"></div>
+      <div class="date"></div>
+    </div>
+
+    <div id="idle">Apri Spotify e premi play</div>
+  </div>
+
+  <button id="gear" title="Impostazioni (S)" aria-label="Impostazioni">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3.2"/>
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+    </svg>
+  </button>
+
+  <aside id="panel" aria-hidden="true"></aside>
+  <div id="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
