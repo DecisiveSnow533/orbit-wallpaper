@@ -16,6 +16,7 @@ import secrets
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -625,7 +626,29 @@ def sp_page(ok, msg):
 # ----------------------------------------------------------------------------
 UPDATE_API = "https://api.github.com/repos/DecisiveSnow533/orbit-wallpaper/releases/latest"
 UPDATE_PREFIX = "https://github.com/DecisiveSnow533/orbit-wallpaper/"
-UPD = {"latest": "", "url": "", "notes": "", "checked": 0.0, "error": "", "shown": ""}
+UPDATE_DL_PREFIX = UPDATE_PREFIX + "releases/download/"
+UPD = {"latest": "", "url": "", "notes": "", "checked": 0.0, "error": "", "shown": "",
+       "asset": None, "state": "idle", "progress": 0, "msg": "", "ver": 0}   # state: idle | downloading | installing | error
+
+
+def upd_set(**kw):
+    """Aggiorna lo stato dell'aggiornamento e avvisa le pagine (evento «update»)."""
+    changed = any(UPD.get(k) != v for k, v in kw.items())
+    UPD.update(kw)
+    if changed:
+        UPD["ver"] += 1
+
+
+def installed_mode():
+    """True se il programma è stato installato con l'installer (c'è il disinstallatore accanto all'exe)."""
+    return bool(getattr(sys, "frozen", False)) and os.path.isfile(os.path.join(os.path.dirname(sys.executable), "unins000.exe"))
+
+
+def update_payload():
+    return {"available": update_available(), "current": VERSION, "latest": UPD["latest"], "notes": UPD["notes"],
+            "mode": "installer" if (installed_mode() and UPD["asset"]) else "portable",
+            "state": UPD["state"], "progress": UPD["progress"], "msg": UPD["msg"],
+            "skipped": bool(UPD["latest"]) and S.cfg.get("skipVersion") == UPD["latest"]}
 
 
 def ver_tuple(s):
@@ -647,8 +670,33 @@ def update_check():
     UPD["checked"], UPD["error"] = time.time(), ""
     if not ver_tuple(tag) or not url.startswith(UPDATE_PREFIX):
         return False
-    UPD["latest"], UPD["url"], UPD["notes"] = tag.lstrip("vV"), url, str(d.get("body") or "")[:1500]
+    asset = None
+    for a in d.get("assets") or []:                      # l'installer della release
+        name, link = str(a.get("name", "")), str(a.get("browser_download_url", ""))
+        if re.fullmatch(r"SpotifyOrbit-Setup-[0-9A-Za-z.\-]+\.exe", name) and link.startswith(UPDATE_DL_PREFIX):
+            dig = str(a.get("digest") or "")
+            asset = {"name": name, "url": link, "size": int(a.get("size") or 0),
+                     "sha256": dig[7:].lower() if dig.lower().startswith("sha256:") else ""}
+            break
+    UPD["asset"] = asset
+    changed = UPD["latest"] != tag.lstrip("vV")
+    UPD["url"], UPD["notes"] = url, str(d.get("body") or "")[:1500]
+    UPD["latest"] = tag.lstrip("vV")
+    if changed:
+        UPD["ver"] += 1
+    else:
+        upd_set()                                         # nessun cambiamento
     return update_available()
+
+
+def announce_update():
+    """Trovato un aggiornamento: apre le impostazioni (dove c'è la barra in alto) e avvisa dall'icona."""
+    try:
+        if TRAY["icon"] is not None:
+            TRAY["icon"].notify(f"È disponibile la versione {UPD['latest']}. Apri le impostazioni per aggiornare.", "Spotify Orbit")
+    except Exception:
+        pass
+    open_settings()
 
 
 def update_thread():
@@ -658,7 +706,7 @@ def update_thread():
             if S.cfg.get("checkUpdates", True) and update_check():
                 if UPD["latest"] not in (S.cfg.get("skipVersion"), UPD["shown"]):
                     UPD["shown"] = UPD["latest"]
-                    open_update_window()
+                    announce_update()
         except Exception as e:
             UPD["error"] = str(e)
             log("controllo aggiornamenti:", e)
@@ -669,12 +717,72 @@ def check_now():
     """Controllo a richiesta (menu dell'icona / pannello). Ritorna (stato, messaggio)."""
     try:
         if update_check():
-            open_update_window()
+            if S.cfg.get("skipVersion") == UPD["latest"]:        # l'utente lo chiede a mano: non è più «saltata»
+                write_settings(dict(S.cfg, skipVersion=""))
+            UPD["shown"] = UPD["latest"]
+            announce_update()
             return "new", f"Disponibile la versione {UPD['latest']}"
         return "ok", f"Hai già l'ultima versione ({VERSION})"
     except Exception as e:
         UPD["error"] = str(e)
         return "error", "Non riesco a controllare gli aggiornamenti (sei online?)"
+
+
+UPD_DIR = os.path.join(tempfile.gettempdir(), "SpotifyOrbit-Update")
+
+
+def update_install():
+    """Scarica l'installer della release, ne verifica l'integrità, lo avvia in modo silenzioso e chiude il programma.
+    L'installer sostituisce i file e riavvia Spotify Orbit da solo."""
+    if UPD["state"] in ("downloading", "installing"):
+        return
+    asset = UPD["asset"]
+    try:
+        if not asset or not installed_mode():
+            raise RuntimeError("L'aggiornamento automatico funziona solo con la versione installata.")
+        os.makedirs(UPD_DIR, exist_ok=True)
+        path = os.path.join(UPD_DIR, asset["name"])
+        upd_set(state="downloading", progress=0, msg="")
+        h = hashlib.sha256()
+        got = 0
+        req = urllib.request.Request(asset["url"], headers={"User-Agent": "orbit-wallpaper-update"})
+        with urllib.request.urlopen(req, timeout=30) as r, open(path, "wb") as f:
+            total = int(r.headers.get("Content-Length") or asset["size"] or 0)
+            while True:
+                chunk = r.read(256 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                h.update(chunk)
+                got += len(chunk)
+                if total:
+                    upd_set(progress=min(99, int(got * 100 / total)))
+        if asset["size"] and got != asset["size"]:
+            raise RuntimeError("Il file scaricato è incompleto.")
+        if asset["sha256"] and h.hexdigest().lower() != asset["sha256"]:
+            os.remove(path)
+            raise RuntimeError("Il file scaricato non corrisponde a quello pubblicato: aggiornamento annullato.")
+        upd_set(state="installing", progress=100, msg="")
+        q = path.replace("'", "''")
+        ps = f"Start-Process -FilePath '{q}' -ArgumentList '/SILENT','/SUPPRESSMSGBOXES','/NORESTART'"
+        # passando da PowerShell l'installer non è «figlio» di questo programma: chiudendolo non viene chiuso anche lui
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True,
+                       creationflags=0x08000000, timeout=30, check=True)
+        log("aggiornamento: installer avviato", asset["name"])
+        time.sleep(1.5)
+        shutdown()
+    except Exception as e:
+        log("aggiornamento fallito:", traceback.format_exc())
+        upd_set(state="error", msg=str(e) if isinstance(e, RuntimeError) else "Aggiornamento non riuscito: " + str(e))
+
+
+def cleanup_old_installers():
+    try:
+        if os.path.isdir(UPD_DIR):
+            for n in os.listdir(UPD_DIR):
+                os.remove(os.path.join(UPD_DIR, n))
+    except Exception:
+        pass
 
 
 # ----------------------------------------------------------------------------
@@ -729,8 +837,7 @@ class Handler(BaseHTTPRequestHandler):
                 mons = []
             return self._send(200, json.dumps(mons).encode("utf-8"))
         if p == "/api/update":
-            d = {"current": VERSION, "latest": UPD["latest"], "available": update_available(), "notes": UPD["notes"],
-                 "url": UPD["url"], "checked": UPD["checked"], "error": UPD["error"]}
+            d = dict(update_payload(), url=UPD["url"], checked=UPD["checked"], error=UPD["error"])
             return self._send(200, json.dumps(d, ensure_ascii=False).encode("utf-8"))
         if p == "/api/spotify/status":
             d = {"state": S.sp_state, "msg": S.sp_msg, "cid": SP["cid"], "redirect": SP_REDIRECT, "count": len(S.sp_items)}
@@ -791,6 +898,10 @@ class Handler(BaseHTTPRequestHandler):
                 import webbrowser
                 webbrowser.open(UPD["url"])
             return self._send(200, b"{}")
+        if u.path == "/api/update/install":
+            if update_available():
+                threading.Thread(target=update_install, daemon=True).start()
+            return self._send(200, b"{}")
         if u.path == "/api/update/skip":
             if UPD["latest"]:
                 write_settings(dict(S.cfg, skipVersion=UPD["latest"]))
@@ -827,6 +938,7 @@ class Handler(BaseHTTPRequestHandler):
         sent_ver = -1
         sent_set = -1
         sent_q = -1
+        sent_u = -1
         try:
             mon_i = int((parse_qs(urlparse(self.path).query).get("mon") or ["-1"])[0])
         except Exception:
@@ -834,6 +946,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             while True:
                 now = time.time()
+                if (UPD["ver"], S.cfg.get("skipVersion")) != sent_u:
+                    sent_u = (UPD["ver"], S.cfg.get("skipVersion"))
+                    self.wfile.write(f"event: update\ndata: {json.dumps(update_payload(), ensure_ascii=False)}\n\n".encode("utf-8"))
                 if S.sp_ver != sent_q:
                     sent_q = S.sp_ver
                     qp = json.dumps({"state": S.sp_state, "msg": S.sp_msg, "items": S.sp_items}, ensure_ascii=False)
@@ -918,7 +1033,6 @@ def port_in_use(port):
 URL = f"http://127.0.0.1:{PORT}/"
 WALLS = {}          # indice monitor -> {"proc", "hwnd", "parent", "mon", "last"}
 SETWIN = {"proc": None}
-UPDWIN = {"proc": None}
 FULLWIN = {"proc": None}
 TRAY = {"icon": None}
 
@@ -1027,20 +1141,6 @@ def open_settings():
     SETWIN["proc"] = launch_edge(URL + "?settings", "browser-set", ["--window-size=1180,780"])
 
 
-def open_update_window():
-    p = UPDWIN["proc"]
-    if p is not None and p.poll() is None:
-        try:
-            import desktop
-            h = desktop.find_window(title_part="Spotify Orbit — Aggiornamento")
-            if h:
-                desktop.focus(h)
-        except Exception:
-            pass
-        return
-    UPDWIN["proc"] = launch_edge(URL + "update.html", "browser-upd", ["--window-size=560,520"])
-
-
 def open_fullwindow():
     p = FULLWIN["proc"]
     if p is not None and p.poll() is None:
@@ -1055,7 +1155,6 @@ def shutdown():
     except Exception:
         pass
     kill_tree(SETWIN["proc"])
-    kill_tree(UPDWIN["proc"])
     kill_tree(FULLWIN["proc"])
     try:
         if TRAY["icon"] is not None:
@@ -1169,6 +1268,7 @@ def main():
     threading.Thread(target=media_thread, daemon=True).start()
     threading.Thread(target=audio_thread, daemon=True).start()
     threading.Thread(target=sp_thread, daemon=True).start()
+    cleanup_old_installers()
     if not nowindow:
         threading.Thread(target=update_thread, daemon=True).start()
         threading.Thread(target=wall_loop, daemon=True).start()

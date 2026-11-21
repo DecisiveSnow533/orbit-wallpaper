@@ -192,6 +192,39 @@ function buildPanel() {
   }).catch(() => {});
 }
 
+/* --- barra di aggiornamento --- */
+const upd = { available: false, later: false, mode: 'portable', state: 'idle', progress: 0, msg: '', current: '', latest: '', skipped: false };
+
+function renderUpdate() {
+  const bar = $('#updbar'); if (!bar || WALL) return;
+  const show = upd.available && !upd.skipped && !upd.later;
+  bar.hidden = !show; document.body.classList.toggle('has-upd', show);
+  if (!show) return;
+  const busy = upd.state === 'downloading' || upd.state === 'installing';
+  const msg = bar.querySelector('.msg'), go = bar.querySelector('.go'), later = bar.querySelector('.later'), skip = bar.querySelector('.skip');
+  msg.textContent = '';
+  const b = (t) => { const e = document.createElement('b'); e.textContent = t; return e; };
+  if (upd.state === 'downloading') msg.append('Scarico la versione ', b(upd.latest), '… ' + upd.progress + '%');
+  else if (upd.state === 'installing') msg.append('Installo la versione ', b(upd.latest), ': Spotify Orbit si chiude e riparte da solo tra qualche secondo…');
+  else if (upd.state === 'error') msg.append(upd.msg || 'Aggiornamento non riuscito.');
+  else if (upd.mode === 'installer') msg.append('È disponibile la versione ', b(upd.latest), ' (hai la ' + upd.current + '). Vuoi aggiornare adesso? Si installa da sola e il programma riparte.');
+  else msg.append('È disponibile la versione ', b(upd.latest), ' (hai la ' + upd.current + '). Usi la versione portatile: scarica il nuovo zip dalla pagina della release.');
+  go.textContent = upd.state === 'error' ? 'Riprova' : upd.mode === 'installer' ? 'Aggiorna ora' : 'Apri la pagina';
+  go.disabled = busy; later.hidden = skip.hidden = busy;
+  bar.classList.toggle('busy', busy);
+  bar.querySelector('.prog i').style.width = (upd.state === 'installing' ? 100 : upd.progress) + '%';
+}
+
+function initUpdateBar() {
+  const bar = $('#updbar'); if (!bar || WALL) return;
+  bar.querySelector('.go').onclick = () => {
+    if (upd.mode === 'installer') fetch('/api/update/install', { method: 'POST' }).catch(() => {});
+    else fetch('/api/update/open', { method: 'POST' }).catch(() => {});
+  };
+  bar.querySelector('.later').onclick = () => { upd.later = true; renderUpdate(); };
+  bar.querySelector('.skip').onclick = () => { fetch('/api/update/skip', { method: 'POST' }).catch(() => {}); };
+}
+
 /* --- profili --- */
 const prof = { ui: null, mons: [] };
 const profList = () => (Array.isArray(cfg.profiles) ? cfg.profiles.filter((x) => x && typeof x.name === 'string' && x.v) : []);
@@ -1122,6 +1155,10 @@ function connect() {
     setTrack(m.title, m.artist, m.album);
     if (m.hasArt) setArt('/art?v=' + m.artv); else clearArt();
   });
+  es.addEventListener('update', (e) => {
+    Object.assign(upd, JSON.parse(e.data));
+    renderUpdate();
+  });
   es.addEventListener('queue', (e) => {
     const m = JSON.parse(e.data);
     sp.state = m.state; sp.msg = m.msg || ''; sp.items = m.items || [];
@@ -1276,6 +1313,7 @@ async function init() {
   if (SETWIN) document.title = 'Spotify Orbit — Impostazioni';
   initGL();
   buildPanel();
+  initUpdateBar();
   applyCfg();
   layout();
   setInterval(tickClock, 1000);

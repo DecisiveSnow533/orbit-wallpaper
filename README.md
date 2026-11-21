@@ -48,7 +48,12 @@ L'accesso usa il flusso PKCE: non servono segreti, vengono richiesti solo i perm
 
 ## Aggiornamenti
 
-All'avvio (e poi ogni 12 ore) il programma controlla se su GitHub è uscita una versione più nuova e, se sì, apre una finestra che te lo consiglia, con i pulsanti «Scarica l'aggiornamento», «Più tardi» e «Salta questa versione». Puoi disattivare l'avviso in *Impostazioni → Sfondo del desktop → Avvisami quando esce una nuova versione*, oppure cercare a mano dal menu dell'icona («Cerca aggiornamenti…»). Non scarica né installa nulla da solo: apre la pagina della release e decidi tu.
+All'avvio (e poi ogni 12 ore) il programma controlla se su GitHub è uscita una versione più nuova. Se sì, apre le impostazioni con una **barra in alto** che te lo propone: **«Aggiorna ora»** scarica l'installer della release, ne verifica l'integrità (SHA-256 pubblicato da GitHub), lo avvia in modo silenzioso e Spotify Orbit si chiude e riparte da solo con la versione nuova, mantenendo le tue impostazioni. Con «Più tardi» la barra sparisce, con «Salta questa versione» non viene riproposta quella versione.
+
+- Non installa mai nulla senza che tu prema «Aggiorna ora».
+- **Versione portatile (zip):** l'aggiornamento automatico funziona solo con la versione installata; con quella portatile la barra apre la pagina della release per scaricare il nuovo zip.
+- Puoi disattivare l'avviso in *Impostazioni → Sfondo del desktop → Avvisami quando esce una nuova versione*, oppure cercare a mano dal menu dell'icona («Cerca aggiornamenti…»).
+- Le versioni precedenti alla 1.2.0 mostrano ancora il vecchio avviso con il solo link alla pagina di download.
 
 ## Privacy
 
@@ -84,5 +89,5 @@ Il codice è in `src/` (`server.py` motore e server locale, `desktop.py` agganci
 - **Requirements:** Windows 11 (tested on 24H2), Microsoft Edge.
 - **Queue (optional):** Windows doesn't expose Spotify's upcoming tracks, so the real queue needs your own Spotify developer app (PKCE flow, read-only scopes, redirect URI `http://127.0.0.1:8777/callback`). Everything else works without it.
 - **Build:** `python -m venv .venv`, `pip install -r requirements.txt`, `.\build.ps1`, optionally `.\installer\build-installer.ps1 -SkipBuild` (needs Inno Setup 6).
-- **Updates:** the app checks GitHub for a newer release (anonymous request, can be turned off) and opens a window recommending the update. It never downloads or installs anything by itself.
+- **Updates:** the app checks GitHub for a newer release (anonymous request, can be turned off) and shows a bar at the top of the settings window. «Aggiorna ora» downloads the installer, verifies its SHA-256, installs silently and restarts the app (installed version only; the portable zip opens the release page instead). Nothing is installed without you pressing the button.
 - **Privacy:** everything runs locally; the only outgoing requests are lyrics lookups (LRCLIB), the update check (GitHub) and, if enabled, the Spotify queue.

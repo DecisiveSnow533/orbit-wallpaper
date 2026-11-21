@@ -44,7 +44,10 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\SpotifyOrbit.exe"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\SpotifyOrbit.exe"; Tasks: desktopicon
 
 [Run]
+; installazione normale: casella «Avvia Spotify Orbit» nell'ultima pagina
 Filename: "{app}\SpotifyOrbit.exe"; Description: "{cm:LaunchApp}"; Flags: nowait postinstall skipifsilent
+; aggiornamento automatico (installazione silenziosa): il programma riparte da solo
+Filename: "{app}\SpotifyOrbit.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM SpotifyOrbit.exe"; Flags: runhidden; RunOnceId: "KillApp"

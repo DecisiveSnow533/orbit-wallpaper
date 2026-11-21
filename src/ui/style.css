@@ -312,6 +312,29 @@ body.panel-open { cursor: default; }
 #panel .hint { opacity: .45; font-size: .76rem; line-height: 1.5; margin-top: 1rem; }
 #panel kbd { background: rgba(255,255,255,.12); border-radius: 4px; padding: 0 .35rem; font: inherit; font-size: .72rem; }
 
+/* barra di aggiornamento in alto */
+#updbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  padding: .65rem 1.2rem; color: #fff; font-size: 14px; user-select: none; cursor: default;
+  background: linear-gradient(90deg, rgba(122,62,235,.96), rgba(196,72,240,.94));
+  box-shadow: 0 8px 28px rgba(0,0,0,.4); backdrop-filter: blur(14px);
+}
+#updbar[hidden] { display: none; }
+#updbar .msg { flex: 1; min-width: 14rem; line-height: 1.35; }
+#updbar .msg b { font-weight: 650; }
+#updbar .acts { display: flex; gap: .5rem; flex-wrap: wrap; }
+#updbar button { font: inherit; color: #fff; cursor: pointer; padding: .4rem .9rem; border-radius: 9px; border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.14); transition: background .2s; }
+#updbar button:hover:not(:disabled) { background: rgba(255,255,255,.28); }
+#updbar button.go { background: #fff; color: #5a2bc4; font-weight: 650; border-color: #fff; }
+#updbar button.go:hover:not(:disabled) { background: #f0e7ff; }
+#updbar button:disabled { opacity: .6; cursor: default; }
+#updbar button[hidden] { display: none; }
+#updbar .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,.22); display: none; }
+#updbar .prog i { display: block; height: 100%; width: 0; background: #fff; transition: width .25s; }
+#updbar.busy .prog { display: block; }
+body.has-upd #panel { top: 3.1rem; }
+body.wall #updbar { display: none !important; }
+
 #toast {
   position: fixed; left: 50%; bottom: 8%; transform: translate(-50%, 20px); opacity: 0; z-index: 50; pointer-events: none;
   background: rgba(20,20,28,.75); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.12);
