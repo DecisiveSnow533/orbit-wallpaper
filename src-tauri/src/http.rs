@@ -284,6 +284,7 @@ fn stream(s: &mut TcpStream, req: &Req) {
     let mut sent_u: (u64, String) = (u64::MAX, String::new());
     let mut sent_q = u64::MAX;
     let mut sent_ver = u64::MAX;
+    let mut last_frame = Instant::now();
     let res: std::io::Result<()> = (|| loop {
         let mut out = String::new();
         let sv = S.set_ver.load(Ordering::SeqCst);
@@ -329,6 +330,12 @@ fn stream(s: &mut TcpStream, req: &Req) {
             (a.bands, a.peak)
         };
         let z = if mon >= 0 { *S.covered_map.lock().unwrap().get(&mon).unwrap_or(&false) } else { S.covered.load(Ordering::SeqCst) };
+        // sfondo coperto: nessuno lo vede, bastano 2 fotogrammi al secondo (gli eventi partono comunque subito)
+        if mon >= 0 && z && out.is_empty() && last_frame.elapsed() < Duration::from_millis(500) {
+            std::thread::sleep(Duration::from_millis(50));
+            continue;
+        }
+        last_frame = Instant::now();
         let arr: Vec<u8> = bands.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8).collect();
         debug_assert_eq!(arr.len(), NB);
         out.push_str(&format!(

@@ -10,6 +10,10 @@ const SETWIN = /[?&]settings/.test(location.search);    // finestra impostazioni
 const CID = Math.random().toString(36).slice(2);        // identifica questa pagina nella sincronizzazione
 const MON = (location.search.match(/[?&]mon=(\d+)/) || [])[1];     // indice del monitor (solo per lo sfondo del desktop)
 let paused = false;
+let monPrimary = true;                                   // questo sfondo sta sul monitor principale? (lo chiede init)
+/* schermi in più con «solo lo sfondo»: niente copertina, testi, widget né orologio */
+let bgo = false;                                         // valore attuale di bgOnly(), aggiornato da applyCfg
+const bgOnly = () => WALL && MON !== undefined && !monPrimary && cfg.monitor === 'all' && !!cfg.extraBgOnly;
 
 /* ====================================================================== *
  *  Impostazioni
@@ -24,13 +28,13 @@ const DEFAULTS = {
   pulseArt: true, rotateArt: false, showStars: true, showParticles: true, showShocks: true, drift: true,
   monitor: '0', fps: '60', pauseCovered: true, onlySpotify: false, autostart: false,
   wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wStyle: 'glass', wFont: 'default', wUpper: false, wNumbers: false,
-  wThumbs: true, wArtist: true, wNow: true, queueEvery: '7',
+  wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', extraBgOnly: false,
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
   profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
 };
 let cfg = { ...DEFAULTS };
 /* Un profilo salva solo l'aspetto: le scelte legate al PC (monitor, avvio con Windows…) restano fuori. */
-const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion']);
+const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'extraBgOnly']);
 /* Con «tutti i monitor» ogni schermo può avere il suo profilo: la pagina dello sfondo lo applica sopra le impostazioni. */
 function effective(c) {
   if (!WALL || MON === undefined || c.monitor !== 'all') return c;
@@ -62,7 +66,11 @@ const SCHEMA = [
     { k: 'wCount', type: 'range', label: 'Quanti brani mostrare', min: 1, max: 8, step: 1, unit: '', when: (c) => c.sideWidget !== 'none' },
     { k: 'wScale', type: 'range', label: 'Dimensione', min: 50, max: 250, step: 5, unit: '%', when: (c) => c.sideWidget !== 'none' },
     { k: 'wOpacity', type: 'range', label: 'Trasparenza', min: 30, max: 100, step: 5, unit: '%', when: (c) => c.sideWidget !== 'none' },
+    { k: 'qLayout', type: 'select', label: 'Aspetto della coda', opts: [
+      ['list', 'Elenco con «Subito dopo»'], ['covers', 'Copertine in fila'], ['stack', 'Pila di copertine'], ['timeline', 'Linea del tempo'], ['ticker', 'Una riga sola']],
+      when: (c) => c.sideWidget === 'queue' },
     { k: 'wSide', type: 'select', label: 'Lato dello schermo', opts: [['left', 'Sinistra'], ['right', 'Destra']], when: (c) => ['cards', 'timeline', 'queue'].includes(c.sideWidget) },
+    { k: 'wVert', type: 'select', label: 'Altezza', opts: [['bottom', 'In basso'], ['top', 'In alto']], when: (c) => ['cards', 'timeline', 'queue'].includes(c.sideWidget) },
     { k: 'wX', type: 'range', label: 'Sposta in orizzontale', min: -100, max: 100, step: 5, unit: '', when: (c) => c.sideWidget !== 'none' },
     { k: 'wY', type: 'range', label: 'Sposta in verticale', min: -100, max: 100, step: 5, unit: '', when: (c) => c.sideWidget !== 'none' },
     { k: 'wNow', type: 'toggle', label: 'Mostra anche il brano in corso', when: (c) => c.sideWidget !== 'none' },
@@ -116,6 +124,7 @@ const SCHEMA = [
   { t: 'Coda di Spotify', custom: 'spotify' },
   { t: 'Sfondo del desktop', items: [
     { k: 'monitor', type: 'select', label: 'Monitor', opts: [['0', 'Principale']] },
+    { k: 'extraBgOnly', type: 'toggle', label: 'Sugli altri schermi solo lo sfondo (niente copertina, testi e widget)', when: (c) => c.monitor === 'all' },
     { k: 'fps', type: 'select', label: 'Fluidità', opts: [['30', '30 FPS (più leggero)'], ['60', '60 FPS']] },
     { k: 'pauseCovered', type: 'toggle', label: 'Pausa quando una finestra copre il desktop' },
     { k: 'onlySpotify', type: 'toggle', label: 'Ascolta solo Spotify' },
@@ -188,8 +197,9 @@ function buildPanel() {
     ? 'Le modifiche si vedono subito sullo sfondo del desktop. Puoi richiamare questa finestra con clic sull\'icona di Spotify Orbit vicino all\'orologio. <kbd>Spazio</kbd> play/pausa · <kbd>←</kbd> <kbd>→</kbd> cambia brano · <kbd>[</kbd> <kbd>]</kbd> sincronia testi'
     : '<kbd>S</kbd> impostazioni · <kbd>F</kbd> schermo intero · <kbd>Spazio</kbd> play/pausa · <kbd>←</kbd> <kbd>→</kbd> brano precedente/successivo · <kbd>[</kbd> <kbd>]</kbd> sincronia testi · clic sulla copertina = play/pausa';
   p.appendChild(hint);
+  const ver = el('div', 'ver', 'Spotify Orbit'); p.appendChild(ver);      // versione attuale, in fondo alle impostazioni
   refreshPanel();
-  fetch('/api/update').then((r) => r.json()).then((d) => { const s = p.querySelector('.sub'); if (s && d.current) s.textContent += ' · versione ' + d.current; }).catch(() => {});
+  fetch('/api/update').then((r) => r.json()).then((d) => { if (d.current) ver.textContent = 'Spotify Orbit · versione ' + d.current; }).catch(() => {});
   fetch('/api/monitors').then((r) => r.json()).then((list) => {          // elenco reale dei monitor
     prof.mons = list;
     const row = rows.find((x) => x.it.k === 'monitor'); if (!row || !list.length) return;
@@ -422,6 +432,8 @@ function applyCfg() {
   r.setProperty('--oy', cfg.artY + '%');
   r.setProperty('--cps', cfg.captionSize / 100);
   b.toggle('w-right', cfg.wSide === 'right');
+  b.toggle('w-top', cfg.wVert === 'top');
+  bgo = bgOnly(); b.toggle('bg-only', bgo);
   W_STYLES.forEach((n) => b.toggle('ws-' + n, (cfg.wStyle || 'glass') === n));
   b.toggle('w-upper', !!cfg.wUpper);
   b.toggle('w-num', !!cfg.wNumbers);
@@ -859,51 +871,99 @@ function renderCards() {
 const mmss = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 function qThumb(url) { const th = el('div', 'th'); if (url) th.style.backgroundImage = `url("${url}")`; return th; }
 function qText(title, artist) { const tx = el('div', 'tx'); tx.appendChild(el('b', '', title)); if (artist) tx.appendChild(el('em', '', artist)); return tx; }
+const Q_LAYOUTS = ['list', 'covers', 'stack', 'timeline', 'ticker'];
+// orario di partenza («tra 3:20»): l'elemento porta i secondi dalla fine del brano in corso, il testo lo scrive updateQueueTimes
+function qAt(off, pre) { const t = el('time', 'at'); t.dataset.off = off; if (pre !== undefined) t.dataset.pre = pre; return t; }
+function qNowRow() {                                       // in riproduzione: riga sottile con equalizzatore, tempo che manca e barra
+  const r = el('div', 'qnow'); const eq = el('div', 'eq'); for (let k = 0; k < 4; k++) eq.appendChild(el('i'));
+  r.appendChild(eq); r.appendChild(qText(state.title, state.artist)); r.appendChild(el('time', 'rem'));
+  const bar = el('div', 'bar'); bar.appendChild(el('i')); r.appendChild(bar);
+  return r;
+}
 function renderQueue() {
   const box = $('#queue'); box.textContent = '';
+  const lay = Q_LAYOUTS.includes(cfg.qLayout) ? cfg.qLayout : 'list';
+  box.className = 'ql-' + lay;
   const ok = sp.state === 'ok';
   const next = ok ? sp.items.filter((q) => q.t !== state.title) : [];   // subito dopo un cambio brano la coda è ancora quella vecchia
+  const shown = next.slice(0, cfg.wCount);
+  const offs = []; let off = 0;                            // secondi tra la fine del brano in corso e l'inizio di ciascuno
+  shown.forEach((q) => { offs.push(off); off = q.d ? off + q.d : NaN; });   // senza durata non si sa quando partono i successivi
+  const msg = !ok ? (sp.state === 'error' ? 'Coda non disponibile · vedi Impostazioni' : 'Collega Spotify nelle impostazioni per vedere la coda')
+    : (!next.length ? 'Nessun brano in coda' : '');
+
+  if (lay === 'ticker') {                                  // una riga sola: «Dopo: titolo — artista · tra 1:23 · poi …»
+    box.appendChild(el('i', 'dot'));
+    if (msg) { box.appendChild(el('span', 'qmsg', msg)); updateQueueTimes(); return; }
+    shown.forEach((q, i) => {
+      const it = el('span', 'tk' + (i === 0 ? ' first' : '')); it.style.setProperty('--k', i);
+      it.appendChild(el('span', 'lbl', i === 0 ? 'Dopo' : 'poi'));
+      it.appendChild(el('b', '', q.t)); if (q.a) it.appendChild(el('em', '', q.a));
+      if (i === 0) it.appendChild(qAt(offs[i]));
+      box.appendChild(it);
+    });
+    updateQueueTimes(); return;
+  }
+
   const hd = el('div', 'qhd'); hd.appendChild(el('i', 'dot')); hd.appendChild(el('span', '', 'In coda'));
   if (next.length) hd.appendChild(el('span', 'cnt', next.length === 1 ? '1 brano' : next.length + ' brani'));
   box.appendChild(hd);
-  if (state.title && cfg.wNow) {                           // in riproduzione: riga sottile con equalizzatore e tempo che manca
-    const r = el('div', 'qnow'); const eq = el('div', 'eq'); for (let k = 0; k < 4; k++) eq.appendChild(el('i'));
-    r.appendChild(eq); r.appendChild(qText(state.title, state.artist)); r.appendChild(el('time', 'rem'));
-    const bar = el('div', 'bar'); bar.appendChild(el('i')); r.appendChild(bar);
-    box.appendChild(r);
+  if (state.title && cfg.wNow && lay !== 'stack') box.appendChild(qNowRow());
+  if (msg) { box.appendChild(el('div', 'qmsg', msg)); updateQueueTimes(); return; }
+
+  if (lay === 'covers') {                                  // copertine in fila: la prima più grande
+    const row = el('div', 'qcov');
+    shown.forEach((q, i) => {
+      const c = el('div', 'qc' + (i === 0 ? ' first' : '')); c.style.setProperty('--k', i);
+      c.appendChild(qThumb(q.i));
+      if (i === 0) c.appendChild(el('span', 'lbl', 'Subito dopo'));
+      c.appendChild(qText(q.t, q.a)); c.appendChild(qAt(offs[i]));
+      row.appendChild(c);
+    });
+    box.appendChild(row);
+  } else if (lay === 'stack') {                            // pila di copertine: davanti la prossima, dietro le altre; sotto i titoli
+    const wrap = el('div', 'qstk'), pile = el('div', 'pile');
+    shown.slice(0, 5).forEach((q, i) => { const th = qThumb(q.i); th.style.setProperty('--k', i); pile.appendChild(th); });
+    wrap.appendChild(pile);
+    const tx = qText(shown[0].t, shown[0].a);
+    const l = el('span', 'lbl'); l.appendChild(document.createTextNode('Subito dopo')); l.appendChild(qAt(offs[0], ' · tra ')); tx.prepend(l);
+    if (shown.length > 1) tx.appendChild(el('span', 'then', 'poi ' + shown.slice(1, 4).map((q) => q.t).join(' · ')));
+    wrap.appendChild(tx);
+    box.appendChild(wrap);
+  } else if (lay === 'timeline') {                         // linea del tempo: a sinistra quando parte, a destra cosa
+    const tl = el('div', 'qtl');
+    shown.forEach((q, i) => {
+      const r = el('div', 'qt' + (i === 0 ? ' first' : '')); r.style.setProperty('--k', i);
+      r.appendChild(qAt(offs[i]));
+      if (i === 0) r.appendChild(qThumb(q.i));
+      r.appendChild(qText(q.t, q.a));
+      tl.appendChild(r);
+    });
+    box.appendChild(tl);
+  } else {                                                 // elenco: «Subito dopo» in evidenza, poi gli altri
+    shown.forEach((q, i) => {
+      const hero = i === 0 && cfg.wStyle !== 'compact';
+      const r = el('div', hero ? 'qnext' : 'qrow'); r.style.setProperty('--k', i);
+      if (!hero) r.appendChild(el('span', 'n', String(i + 1)));
+      r.appendChild(qThumb(q.i));
+      const tx = qText(q.t, q.a);
+      if (hero) { const l = el('span', 'lbl'); l.appendChild(document.createTextNode('Subito dopo')); l.appendChild(qAt(offs[i], ' · tra ')); tx.prepend(l); }
+      r.appendChild(tx);
+      if (!hero) { r.appendChild(qAt(offs[i])); r.style.opacity = Math.max(0.35, 1 - (i - 1) * 0.13).toFixed(2); }
+      box.appendChild(r);
+    });
   }
-  if (!ok) {
-    box.appendChild(el('div', 'qmsg', sp.state === 'error' ? 'Coda non disponibile · vedi Impostazioni' : 'Collega Spotify nelle impostazioni per vedere la coda'));
-    updateQueueTimes(); return;
-  }
-  if (!next.length) { box.appendChild(el('div', 'qmsg', 'Nessun brano in coda')); updateQueueTimes(); return; }
-  let off = 0;                                              // secondi tra la fine del brano in corso e l'inizio di questo
-  const shown = next.slice(0, cfg.wCount);
-  shown.forEach((q, i) => {
-    const hero = i === 0 && cfg.wStyle !== 'compact';
-    const r = el('div', hero ? 'qnext' : 'qrow'); r.dataset.off = off; r.style.setProperty('--k', i);
-    if (!hero) r.appendChild(el('span', 'n', String(i + 1)));
-    r.appendChild(qThumb(q.i));
-    const tx = qText(q.t, q.a);
-    if (hero) { const l = el('span', 'lbl'); l.appendChild(document.createTextNode('Subito dopo')); l.appendChild(el('time', 'at')); tx.prepend(l); }
-    r.appendChild(tx);
-    if (!hero) r.appendChild(el('time', 'at'));
-    if (!hero) r.style.opacity = Math.max(0.35, 1 - (i - 1) * 0.13).toFixed(2);
-    box.appendChild(r);
-    off += q.d || 0;
-    if (!q.d) off = NaN;                                      // senza durata non si può calcolare quando partono i successivi
-  });
   updateQueueTimes();
 }
 // aggiorna ogni secondo «tra 3:20» e il tempo che manca al brano in corso, senza ridisegnare la coda
 function updateQueueTimes() {
-  if (cfg.sideWidget !== 'queue') return;
+  if (cfg.sideWidget !== 'queue' || bgo) return;
   const box = $('#queue'), d = state.duration, left = d ? Math.max(0, d - getPos()) : NaN;
   const rem = box.querySelector('.qnow .rem'); if (rem) rem.textContent = isNaN(left) ? '' : '−' + mmss(left);
   const bar = box.querySelector('.qnow .bar i'); if (bar) bar.style.width = d ? (getPos() / d * 100).toFixed(1) + '%' : '0%';
-  box.querySelectorAll('[data-off]').forEach((r) => {
-    const t = r.querySelector('time.at'), s = left + Number(r.dataset.off);
-    if (t) t.textContent = isNaN(s) ? '' : (r.classList.contains('qnext') ? ' · tra ' : 'tra ') + mmss(s);
+  box.querySelectorAll('time.at').forEach((t) => {
+    const s = left + Number(t.dataset.off), pre = t.dataset.pre !== undefined ? t.dataset.pre : 'tra ';
+    t.textContent = isNaN(s) ? '' : pre + mmss(s);
   });
 }
 
@@ -947,6 +1007,7 @@ function spawn(n, s) {
 function onBeat(s, now) {
   s = clamp(s, 0.35, 1);
   lastBeat = now; beatEnergy = Math.max(beatEnergy, s);
+  if (bgo) return;                                          // solo sfondo: niente onde e particelle intorno a una copertina che non c'è
   if (cfg.showShocks) { shocks.push({ t: now, s }); if (shocks.length > 6) shocks.shift(); }
   if (cfg.showParticles) spawn(Math.round(8 + s * 18), s);
 }
@@ -1202,7 +1263,7 @@ function setTrack(title, artist, album) {
   $('#caption .t').textContent = title; $('#caption .a').textContent = artist;
   if (!WALL && !SETWIN) document.title = title ? `${title} — ${artist}` : 'Spotify Orbit';
   renderList(); showLine('', '');
-  if (title && !demo.on) fetchLyrics(req);
+  if (title && !demo.on && !bgo) fetchLyrics(req);         // schermo con solo lo sfondo: i testi non servono
 }
 
 function setArt(url) {
@@ -1372,6 +1433,8 @@ window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(()
  *  Ciclo di disegno
  * ====================================================================== */
 let last = performance.now();
+const capBar = $('#caption .p i'), capTime = $('#caption .tm');
+let capW = '', capTm = null;
 let lastMouse = 0;
 window.addEventListener('mousemove', () => { lastMouse = performance.now(); });
 function idleNow(now) {
@@ -1394,16 +1457,22 @@ function frame(now) {
   drawBlur(now);
   drawFx(dt, now);
   drawSpec();
-  const p = getPos(), d = state.duration, fmt = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
-  $('#caption .p i').style.width = d ? (p / d * 100).toFixed(2) + '%' : '0%';
-  $('#caption .tm').textContent = state.title && d ? fmt(p) + '  /  ' + fmt(d) : '';
-  updateLyrics();
+  if (!bgo) {
+    const p = getPos(), d = state.duration, fmt = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+    const w = d ? (p / d * 100).toFixed(1) + '%' : '0%', tm = state.title && d ? fmt(p) + '  /  ' + fmt(d) : '';
+    if (w !== capW) { capW = w; capBar.style.width = w; }               // solo quando cambia: niente lavoro di layout a ogni fotogramma
+    if (tm !== capTm) { capTm = tm; capTime.textContent = tm; }
+    updateLyrics();
+  }
   if (cfg.drift && cfg.bg === 'blur') { /* il movimento è già nello sfondo */ }
   requestAnimationFrame(frame);
 }
 
 async function init() {
   await loadCfg();
+  if (WALL && MON !== undefined) {                         // su quale monitor sta questo sfondo (per «solo lo sfondo» sugli altri)
+    try { const l = await (await fetch('/api/monitors')).json(); const m = l.find((x) => String(x.i) === MON); monPrimary = !m || !!m.primary; } catch (e) { /* principale */ }
+  }
   if (WALL) { document.body.classList.add('wall'); document.title = 'SpotifyOrbitWallpaper[' + (MON === undefined ? '0' : MON) + ']'; }
   if (SETWIN) document.title = 'Spotify Orbit — Impostazioni';
   initGL();
