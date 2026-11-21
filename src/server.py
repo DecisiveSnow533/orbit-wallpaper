@@ -921,6 +921,9 @@ class Handler(BaseHTTPRequestHandler):
             if c in ("playpause", "next", "prev") and LOOP is not None:
                 asyncio.run_coroutine_threadsafe(do_cmd(c), LOOP)
             return self._send(200, b"{}")
+        if u.path == "/api/open-settings":           # dalla seconda copia avviata (doppio clic sull'icona)
+            threading.Thread(target=open_settings, daemon=True).start()
+            return self._send(200, b"{}")
         if u.path == "/api/quit":
             self._send(200, b"{}")
             threading.Timer(0.3, shutdown).start()
@@ -999,17 +1002,118 @@ def find_browser():
     return None
 
 
-def launch_edge(url, profile, extra=()):
+_JOB = {"h": None}
+
+
+def edge_job():
+    """Job Object di Windows con «chiudi tutto quando si chiude il job»: il job appartiene a questo processo,
+    quindi quando Orbit termina (anche per un crash o «Termina attività») Windows chiude tutti i suoi Edge."""
+    if _JOB["h"] is not None:
+        return _JOB["h"] or None
+    import ctypes
+    from ctypes import wintypes
+
+    class BASIC(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)]
+
+    class IOC(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_uint64) for n in ("Read", "Write", "Other", "ReadT", "WriteT", "OtherT")]
+
+    class EXT(ctypes.Structure):
+        _fields_ = [("Basic", BASIC), ("Io", IOC), ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    k = ctypes.windll.kernel32
+    k.CreateJobObjectW.restype = wintypes.HANDLE
+    k.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    h = k.CreateJobObjectW(None, None)
+    info = EXT()
+    info.Basic.LimitFlags = 0x2000                     # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not h or not k.SetInformationJobObject(h, 9, ctypes.byref(info), ctypes.sizeof(info)):
+        log("job object non disponibile")
+        _JOB["h"] = 0
+        return None
+    _JOB["h"] = h
+    return h
+
+
+EDGE_FLAGS = [
+    "--no-first-run", "--no-default-browser-check", "--autoplay-policy=no-user-gesture-required",
+    "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
+    # niente Edge che resta acceso in background, niente download di componenti/estensioni che a Orbit non servono
+    "--disable-background-mode", "--disable-component-update", "--disable-extensions",
+    "--disable-component-extensions-with-background-pages", "--disable-default-apps", "--disable-sync", "--no-pings",
+    "--disable-crash-reporter", "--disk-cache-size=16777216",
+    "--disable-features=Translate,CalculateNativeWinOcclusion,OptimizationGuideModelDownloading,OptimizationHintsFetching,"
+    "OptimizationTargetPrediction,OptimizationHints,MediaRouter,AutofillServerCommunication,InterestFeedContentSuggestions,"
+    "msEdgeShopping,msShoppingTrigger,msEdgeCopilot,msEdgeSidebar,msEdgeWallet",
+]
+
+
+def launch_edge(url, profile, extra=(), tie=True):
+    """Apre una finestra «app» di Edge. Con tie=True il processo finisce nel job di Orbit (si chiude insieme a Orbit)."""
     exe = find_browser()
     if not exe:
         import webbrowser
         webbrowser.open(url)
         return None
-    args = [exe, f"--app={url}", f"--user-data-dir={os.path.join(DATA, profile)}", "--no-first-run",
-            "--no-default-browser-check", "--autoplay-policy=no-user-gesture-required",
-            "--disable-features=Translate,CalculateNativeWinOcclusion", "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding", "--disable-background-timer-throttling", *extra]
-    return subprocess.Popen(args)
+    args = [exe, f"--app={url}", f"--user-data-dir={os.path.join(DATA, profile)}", *EDGE_FLAGS, *extra]
+    job = edge_job() if tie else None
+    if not job:
+        return subprocess.Popen(args)
+    import ctypes
+    p = subprocess.Popen(args, creationflags=0x00000004)          # CREATE_SUSPENDED: entra nel job prima di avviare altri processi
+    try:
+        ctypes.windll.kernel32.AssignProcessToJobObject(ctypes.c_void_p(job), ctypes.c_void_p(int(p._handle)))
+    except Exception:
+        log("assegnazione al job", traceback.format_exc())
+    finally:
+        ctypes.windll.ntdll.NtResumeProcess(ctypes.c_void_p(int(p._handle)))
+    return p
+
+
+OLD_PROFILES = ("browser", "browser-wall", "browser-upd")          # profili di versioni precedenti, non più usati
+EDGE_JUNK = ("component_crx_cache", "ProvenanceData", "Edge Entity Extraction", "WidevineCdm", "Edge Wallet",
+             "Subresource Filter", "OptimizationGuidePredictionModels", "optimization_guide_model_store", "GrShaderCache",
+             "ShaderCache", "Crashpad", "Edge Shopping", "Edge Copilot", "Trust Protection Lists", "SmartScreen",
+             os.path.join("Default", "Extensions"), os.path.join("Default", "Cache"), os.path.join("Default", "Code Cache"),
+             os.path.join("Default", "Service Worker", "CacheStorage"), os.path.join("Default", "optimization_guide_model_store"))
+
+
+def tidy_profiles():
+    """Libera spazio: cancella i profili Edge vecchi e le parti pesanti (e inutili per Orbit) di quelli in uso.
+    Va chiamata quando nessun Edge di Orbit è aperto. Le impostazioni e la cronologia restano."""
+    import shutil
+    freed = 0
+
+    def size(p):
+        t = 0
+        for root, _, files in os.walk(p):
+            for f in files:
+                try:
+                    t += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+        return t
+    try:
+        for n in os.listdir(DATA):
+            d = os.path.join(DATA, n)
+            if not (os.path.isdir(d) and n.startswith("browser")):
+                continue
+            targets = [d] if n in OLD_PROFILES else [os.path.join(d, j) for j in EDGE_JUNK]
+            for t in targets:
+                if os.path.exists(t):
+                    s = size(t)
+                    shutil.rmtree(t, ignore_errors=True)
+                    if not os.path.exists(t):
+                        freed += s
+    except Exception:
+        log("pulizia profili", traceback.format_exc())
+    if freed > 1_000_000:
+        log(f"pulizia profili: liberati {freed // 1_000_000} MB")
 
 
 def kill_tree(proc):
@@ -1250,9 +1354,12 @@ def run_tray():
 
 def main():
     nowindow = "--nowindow" in sys.argv          # solo motore (per i test)
-    if port_in_use(PORT):                        # già in esecuzione: apri le impostazioni e basta
+    if port_in_use(PORT):                        # già in esecuzione: chiedo a lui di aprire le impostazioni
         if not nowindow:
-            launch_edge(URL + "?settings", "browser-set", ["--window-size=1180,780"])
+            try:
+                urllib.request.urlopen(urllib.request.Request(URL + "api/open-settings", data=b"", method="POST"), timeout=5).read()
+            except Exception:
+                launch_edge(URL + "?settings", "browser-set", ["--window-size=1180,780"], tie=False)
         return
     log("avvio", sys.version.split()[0])
     if not nowindow:
@@ -1265,6 +1372,7 @@ def main():
                            capture_output=True, creationflags=0x08000000, timeout=20)
         except Exception:
             log("pulizia avvio", traceback.format_exc())
+        tidy_profiles()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
