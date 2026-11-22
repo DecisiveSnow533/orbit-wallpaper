@@ -50,8 +50,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\SpotifyOrbit.exe"; Tasks: d
 [Run]
 ; installazione normale: casella «Avvia Spotify Orbit» nell'ultima pagina
 Filename: "{app}\SpotifyOrbit.exe"; Description: "{cm:LaunchApp}"; Flags: nowait postinstall skipifsilent
-; aggiornamento automatico (installazione silenziosa): il programma riparte da solo
-Filename: "{app}\SpotifyOrbit.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
+; aggiornamento automatico (installazione silenziosa): il programma riparte da solo, tranne con /NOAPPRESTART
+Filename: "{app}\SpotifyOrbit.exe"; Flags: nowait runasoriginaluser; Check: ShouldRestartApp
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM SpotifyOrbit.exe"; Flags: runhidden; RunOnceId: "KillApp"
@@ -63,6 +63,12 @@ var
   rc: Integer;
 begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM SpotifyOrbit.exe', '', SW_HIDE, ewWaitUntilTerminated, rc);
+end;
+
+{ installazione silenziosa: riavvia il programma, a meno che non si passi /NOAPPRESTART (installazioni fatte da script) }
+function ShouldRestartApp: Boolean;
+begin
+  Result := WizardSilent and (Pos('/NOAPPRESTART', UpperCase(GetCmdTail)) = 0);
 end;
 
 function InitializeSetup: Boolean;

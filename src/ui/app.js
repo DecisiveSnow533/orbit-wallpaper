@@ -27,13 +27,14 @@ const DEFAULTS = {
   monitor: '0', fps: '60', pauseCovered: true, onlySpotify: false, autostart: false,
   wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wStyle: 'glass', wFont: 'default', wUpper: false, wNumbers: false,
   wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', showCenter: true, lastWidget: 'queue',
+  trackFx: 'zoom', trackFxSpeed: 100, fxTest: 0,
   secCustom: false, secondary: {},
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
   profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
 };
 let cfg = { ...DEFAULTS };
 /* Un profilo salva solo l'aspetto: le scelte legate al PC (monitor, avvio con Windows…) restano fuori. */
-const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary']);
+const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary', 'fxTest']);
 /* Schermi secondari (con «tutti i monitor» e «Personalizza»): cosa mostrare e dove. Di base solo lo sfondo. */
 const SEC_DEFAULTS = {
   showCenter: false, ringSize: 100, artX: 0, artY: 0, captionSize: 100,
@@ -78,6 +79,14 @@ const SCHEMA = [
     { k: 'bgIntensity', type: 'range', label: 'Luminosità', min: 40, max: 170, step: 5, unit: '%' },
     { k: 'bgSpeed', type: 'range', label: 'Velocità del movimento', min: 0, max: 300, step: 10, unit: '%' },
     { k: 'bgQuality', type: 'select', label: 'Qualità', opts: [['low', 'Bassa (più leggera)'], ['medium', 'Media'], ['high', 'Alta']] },
+  ] },
+  { t: 'Cambio brano', items: [
+    { k: 'trackFx', type: 'select', label: 'Animazione al cambio di brano', opts: [
+      ['random', 'Casuale (ogni volta diversa)'], ['zoom', 'Zoom'], ['fade', 'Dissolvenza'], ['slide', 'Scorrimento'], ['flip', 'Giro di carta'],
+      ['vinyl', 'Vinile che gira'], ['iris', 'Apertura a cerchio'], ['glitch', 'Glitch'], ['burst', 'Esplosione di luce'], ['none', 'Nessuna']] },
+    { k: 'trackFxSpeed', type: 'range', label: 'Durata', min: 50, max: 200, step: 10, unit: '%', when: (c) => c.trackFx !== 'none' },
+    { k: 'fxTry', type: 'button', label: 'Guardala sul desktop', text: 'Prova', when: (c) => c.trackFx !== 'none',
+      action: () => { replayFx(); setCfg('fxTest', Date.now()); } },        // fxTest: le pagine dello sfondo ripetono l'animazione
   ] },
   { t: 'Disposizione', items: [
     { k: 'layout', type: 'select', label: 'Layout', opts: [['classic', 'Classico (testi a sinistra)'], ['center', 'Centrato (testi sotto)']] },
@@ -216,6 +225,10 @@ function buildPanel() {
         it.opts.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; input.appendChild(o); });
         row.append(lab, input);
         input.onchange = () => setCfg(it.k, input.value);
+      } else if (it.type === 'button') {
+        input = document.createElement('button'); input.type = 'button'; input.className = 'mini'; input.textContent = it.text || it.label;
+        row.append(lab, input);
+        input.onclick = () => it.action();
       } else if (it.type === 'color') {
         input = document.createElement('input'); input.type = 'color';
         row.append(lab, input);
@@ -448,7 +461,8 @@ function refreshPanel() {
   updateProfilesUI();
   for (const { it, row, input } of rows) {
     const v = getK(it.k);
-    if (it.type === 'toggle') input.checked = !!v;
+    if (it.type === 'button') { /* niente valore */ }
+    else if (it.type === 'toggle') input.checked = !!v;
     else if (it.type === 'range') { input.value = v; it._val.textContent = v + (it.unit || ''); }
     else input.value = v;
     row.classList.toggle('hidden', !!(it.when && !it.when(cfg)));
@@ -832,15 +846,29 @@ const blurEl = $('#blur'), lyricsEl = $('#lyrics');
 let lastBeatVar = -1;
 // sfondo «copertina sfocata»: la sfocatura si calcola una volta sola per brano su un'immagine piccola
 // (prima era un filtro CSS da 70 px sull'intero schermo, ricalcolato a ogni fotogramma)
+// cambio brano: lo sfondo sfocato passa dalla copertina vecchia alla nuova in dissolvenza (blurMix), non di colpo
+let blurNext = null, blurMix = null;
 function drawBlurredArt(im) {
-  const N = 256;
-  if (blurEl.width !== N) { blurEl.width = N; blurEl.height = N; }
-  const x = blurEl.getContext('2d');
+  const N = 256, next = document.createElement('canvas'); next.width = next.height = N;
+  const x = next.getContext('2d');
   x.filter = 'blur(5px) saturate(1.6) brightness(.55)';
   x.drawImage(im, -20, -20, N + 40, N + 40);                 // un po' più grande: niente bordi sfumati verso il trasparente
-  x.filter = 'none';
+  const fading = blurEl.width === N && cfg.trackFx !== 'none';
+  if (fading) {
+    const prev = document.createElement('canvas'); prev.width = prev.height = N; prev.getContext('2d').drawImage(blurEl, 0, 0);
+    blurMix = { prev, next, t0: performance.now() };
+  } else { blurEl.width = N; blurEl.height = N; blurEl.getContext('2d').drawImage(next, 0, 0); blurMix = null; }
+  blurNext = next;
+}
+function stepBlurMix(now) {
+  if (!blurMix) return;
+  const t = cfg.bg === 'blur' ? clamp((now - blurMix.t0) / (fxDur() * 1300), 0, 1) : 1;   // sfondo diverso: si chiude subito
+  const x = blurEl.getContext('2d');
+  x.globalAlpha = 1; x.drawImage(blurMix.prev, 0, 0); x.globalAlpha = t; x.drawImage(blurMix.next, 0, 0); x.globalAlpha = 1;
+  if (t >= 1) blurMix = null;
 }
 function drawBlur(now) {
+  stepBlurMix(now);
   if (cfg.bg !== 'blur' && !(document.body.classList.contains('no-webgl') && cfg.bg === 'aurora')) return;
   const t = now / 1000 * (cfg.bgSpeed / 100);
   blurEl.style.transform = `rotate(${(Math.sin(t * 0.05) * 6).toFixed(2)}deg) scale(${(1.12 + bassSm * 0.06 + beatEnergy * 0.03).toFixed(3)}) translate(${(Math.sin(t * 0.07) * 2).toFixed(2)}%, ${(Math.cos(t * 0.06) * 2).toFixed(2)}%)`;
@@ -1319,17 +1347,63 @@ function setTrack(title, artist, album) {
   const req = ++state.lyricReq;
   document.body.classList.toggle('idle', !title);
   $('#caption .t').textContent = title; $('#caption .a').textContent = artist;
+  state.fx = pickFx(); animCaption(state.fx);               // la copertina nuova (setArt) userà la stessa animazione
   if (!WALL && !SETWIN) document.title = title ? `${title} — ${artist}` : 'Spotify Orbit';
   renderList(); showLine('', '');
   if (title && !demo.on && cfg.showLyrics) fetchLyrics(req);   // testi spenti (es. schermo secondario): non servono
 }
 
+/* ---------- animazioni al cambio brano ---------- */
+const TFX = ['fade', 'zoom', 'slide', 'flip', 'vinyl', 'iris', 'glitch', 'burst'];
+let lastFx = '';
+function pickFx() {
+  let f = cfg.trackFx || 'zoom';
+  if (f === 'random') { const o = TFX.filter((x) => x !== lastFx); f = o[Math.floor(Math.random() * o.length)]; }   // mai due uguali di fila
+  if (f !== 'none' && !TFX.includes(f)) f = 'zoom';
+  lastFx = f; return f;
+}
+function fxDur() { return 0.9 * (Number(cfg.trackFxSpeed) || 100) / 100; }        // secondi
+function animCaption(fx) {
+  const c = $('#caption');
+  c.style.setProperty('--tfxd', fxDur() + 's');
+  c.classList.remove('cap-anim', 'cap-slide', 'cap-flip', 'cap-glitch', 'cap-burst');
+  if (fx === 'none') return;
+  void c.offsetWidth;                                        // riparte l'animazione anche se la classe era già lì
+  c.classList.add('cap-anim'); if (['slide', 'flip', 'glitch', 'burst'].includes(fx)) c.classList.add('cap-' + fx);
+}
+// copertina: la vecchia (copia temporanea) esce, la nuova entra, entrambe dentro al cerchio
+function artTransition(url, fx) {
+  const box = $('#art'), cur = box.querySelector('.img:not(.old)');
+  box.style.setProperty('--tfxd', fxDur() + 's');
+  box.querySelectorAll('.img.old').forEach((e) => e.remove());
+  const had = cur.style.backgroundImage;
+  if (fx !== 'none' && had) { const old = cur.cloneNode(false); old.className = 'img old tfx-out-' + fx + (cur.classList.contains('dim') ? ' dim' : ''); box.insertBefore(old, cur.nextSibling); setTimeout(() => old.remove(), fxDur() * 1000 + 150); }
+  cur.style.backgroundImage = url ? `url("${url}")` : '';
+  cur.className = 'img'; void cur.offsetWidth;
+  if (fx !== 'none') cur.classList.add('tfx-in-' + fx);
+  if (fx === 'burst') {
+    const f = box.querySelector('.flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+    if (artR && cfg.showCenter) { const n = performance.now(); onBeat(1, n); onBeat(0.8, n - 250); if (cfg.showParticles) spawn(110, 1); }
+  }
+}
+// «Prova l'animazione»: ripete il cambio con la copertina attuale
+function replayFx() {
+  if (!state.artUrl) return;
+  // per vedere davvero il passaggio parte dalla copertina del brano precedente (miniatura della cronologia), se c'è
+  const prev = history.find((h) => h.thumb && h.key !== state.key);
+  const cur = $('#art .img:not(.old)');
+  cur.style.backgroundImage = prev ? `url("${prev.thumb}")` : cur.style.backgroundImage;
+  if (!prev) cur.classList.add('dim');
+  state.fx = pickFx(); animCaption(state.fx); artTransition(state.artUrl, state.fx);
+}
+
 function setArt(url) {
   const im = new Image();
   im.onload = () => {
-    document.querySelectorAll('.img').forEach((el) => { el.style.backgroundImage = `url("${url}")`; });
+    document.querySelectorAll('.img:not(.old)').forEach((el) => { if (!el.parentElement || el.parentElement.id !== 'art') el.style.backgroundImage = `url("${url}")`; });
+    const fx = state.fx || pickFx(); state.fx = 'fade';       // la stessa copertina riletta dopo (Spotify in ritardo) entra in dissolvenza
+    artTransition(url, fx); state.artUrl = url;
     try { drawBlurredArt(im); } catch (e) { /* resta lo sfondo scuro */ }
-    const a = $('#art .img'); a.classList.remove('swap'); void a.offsetWidth; a.classList.add('swap');
     artPal = extractPalette(im); recomputePalette();
     try {                                                                   // miniatura per la cronologia
       const tc = document.createElement('canvas'); tc.width = tc.height = 72;
@@ -1337,13 +1411,14 @@ function setArt(url) {
       tx.drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, 72, 72);
       state.thumb = tc.toDataURL('image/jpeg', 0.72); renderList();
     } catch (e) { /* nessuna miniatura */ }
-    if (artR) { onBeat(1, performance.now()); if (cfg.showParticles) spawn(40, 1); }
+    if (artR && fx !== 'burst') { onBeat(1, performance.now()); if (cfg.showParticles) spawn(40, 1); }
   };
   im.src = url;
 }
 function clearArt() {
-  document.querySelectorAll('.img').forEach((el) => { el.style.backgroundImage = ''; });
-  blurEl.width = 2; blurEl.height = 2; artPal = null; state.thumb = ''; recomputePalette();
+  document.querySelectorAll('.img:not(.old)').forEach((el) => { if (!el.parentElement || el.parentElement.id !== 'art') el.style.backgroundImage = ''; });
+  artTransition('', cfg.trackFx === 'none' ? 'none' : 'fade'); state.artUrl = '';
+  blurEl.width = 2; blurEl.height = 2; blurMix = null; blurNext = null; artPal = null; state.thumb = ''; recomputePalette();
 }
 
 /* ====================================================================== *
@@ -1372,7 +1447,9 @@ function connect() {
   es.addEventListener('settings', (e) => {                 // modifiche fatte da un'altra finestra
     const m = JSON.parse(e.data);
     if (m.cid === CID) return;
+    const prevTest = cfg.fxTest;
     cfg = effective(migrate({ ...DEFAULTS, ...m.cfg }, m.cfg)); refreshPanel(); applyCfg();
+    if (cfg.fxTest && cfg.fxTest !== prevTest) replayFx();   // «Prova» premuto nelle impostazioni
   });
   es.onmessage = (e) => {
     const f = JSON.parse(e.data);

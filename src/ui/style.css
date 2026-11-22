@@ -65,8 +65,77 @@ body.layout-center { --cx: calc(50% + var(--ox)); --cy: calc(37% + var(--oy)); }
   will-change: transform;
 }
 .img { width: 100%; height: 100%; border-radius: 50%; background: radial-gradient(circle at 50% 40%, #2b2b36, #0b0b10) center / cover no-repeat; }
-#art .img.swap { animation: artIn .8s cubic-bezier(.2, .8, .2, 1); }
-@keyframes artIn { from { transform: scale(1.2); opacity: 0; filter: blur(8px); } to { transform: scale(1); opacity: 1; filter: none; } }
+
+/* ---------- animazioni al cambio brano ----------
+ * la copertina nuova (.img) e la vecchia (.img.old, una copia temporanea) si animano insieme dentro al cerchio */
+#art { --tfxd: .9s; }
+#art .img { position: absolute; inset: 0; z-index: 1; }
+#art .img.old { z-index: 2; pointer-events: none; }
+#art .img.old.dim { filter: grayscale(1) brightness(.5); }   /* «Prova» senza brano precedente: la «vecchia» è la stessa, in grigio */
+#art .flash { position: absolute; inset: 0; z-index: 3; border-radius: 50%; pointer-events: none; opacity: 0; background: radial-gradient(circle, #fff 0%, rgba(var(--accent), .9) 45%, rgba(var(--accent), 0) 75%); }
+#art .flash.go { animation: tfxFlash calc(var(--tfxd) * .9) ease-out both; }
+@keyframes tfxFlash { 0% { opacity: .95; } 100% { opacity: 0; } }
+/* dissolvenza */
+#art .img.tfx-in-fade { animation: tfxFadeIn var(--tfxd) ease both; }
+#art .img.old.tfx-out-fade { animation: tfxFadeOut var(--tfxd) ease both; }
+@keyframes tfxFadeIn { from { opacity: 0; } }
+@keyframes tfxFadeOut { to { opacity: 0; } }
+/* zoom: la vecchia si allontana, la nuova arriva da vicino */
+#art .img.tfx-in-zoom { animation: tfxZoomIn var(--tfxd) cubic-bezier(.2, .8, .2, 1) both; }
+#art .img.old.tfx-out-zoom { animation: tfxZoomOut calc(var(--tfxd) * .7) cubic-bezier(.5, 0, .8, .4) both; }
+@keyframes tfxZoomIn { from { transform: scale(1.3); opacity: 0; filter: blur(10px); } }
+@keyframes tfxZoomOut { to { transform: scale(.55); opacity: 0; filter: blur(6px); } }
+/* scorrimento: la vecchia esce a sinistra, la nuova entra da destra */
+#art .img.tfx-in-slide { animation: tfxSlideIn var(--tfxd) cubic-bezier(.65, 0, .25, 1) both; }
+#art .img.old.tfx-out-slide { animation: tfxSlideOut var(--tfxd) cubic-bezier(.65, 0, .25, 1) both; }
+@keyframes tfxSlideIn { from { transform: translateX(100%); } }
+@keyframes tfxSlideOut { to { transform: translateX(-100%); } }
+/* giro di carta: la vecchia gira di taglio, poi compare la nuova dall'altro lato */
+#art .img.tfx-in-flip { animation: tfxFlipIn calc(var(--tfxd) * .5) calc(var(--tfxd) * .5) cubic-bezier(.2, .8, .3, 1) both; }
+#art .img.old.tfx-out-flip { animation: tfxFlipOut calc(var(--tfxd) * .5) cubic-bezier(.7, 0, .8, .3) both; }
+@keyframes tfxFlipIn { from { transform: perspective(700px) rotateY(-90deg); filter: brightness(.5); } }
+@keyframes tfxFlipOut { to { transform: perspective(700px) rotateY(90deg); filter: brightness(.5); } }
+/* vinile: la vecchia gira via, la nuova arriva girando */
+#art .img.tfx-in-vinyl { animation: tfxVinylIn var(--tfxd) cubic-bezier(.15, .7, .25, 1) both; }
+#art .img.old.tfx-out-vinyl { animation: tfxVinylOut calc(var(--tfxd) * .6) ease-in both; }
+@keyframes tfxVinylIn { from { transform: rotate(260deg) scale(.75); opacity: 0; filter: blur(4px); } }
+@keyframes tfxVinylOut { to { transform: rotate(-160deg) scale(.85); opacity: 0; filter: blur(4px); } }
+/* apertura a cerchio: la nuova si apre dal centro sopra la vecchia */
+#art .img.old.tfx-out-iris { z-index: 0; }
+#art .img.tfx-in-iris { animation: tfxIris var(--tfxd) cubic-bezier(.6, 0, .2, 1) both; }
+@keyframes tfxIris { from { clip-path: circle(0% at 50% 50%); filter: brightness(1.6); } to { clip-path: circle(75% at 50% 50%); } }
+/* glitch: scatti, colori sfasati e righe spostate */
+#art .img.tfx-in-glitch { animation: tfxGlitchIn calc(var(--tfxd) * .8) steps(1, end) both; }
+#art .img.old.tfx-out-glitch { animation: tfxGlitchOut calc(var(--tfxd) * .45) steps(1, end) both; }
+@keyframes tfxGlitchIn {
+  0% { opacity: 0; }
+  12% { opacity: 1; transform: translate(-6%, 2%); filter: hue-rotate(90deg) saturate(3); clip-path: inset(10% 0 55% 0); }
+  24% { transform: translate(5%, -3%); filter: hue-rotate(-60deg) contrast(2); clip-path: inset(45% 0 15% 0); }
+  36% { transform: translate(-3%, 0); filter: invert(.25); clip-path: inset(0 0 70% 0); }
+  48% { transform: translate(2%, 1%); filter: hue-rotate(160deg); clip-path: inset(30% 0 30% 0); }
+  60% { transform: translate(-1%, -1%); filter: saturate(2) brightness(1.4); clip-path: none; }
+  76% { transform: translate(1%, 0); filter: hue-rotate(-30deg); }
+  100% { transform: none; filter: none; clip-path: none; opacity: 1; }
+}
+@keyframes tfxGlitchOut { 0% { transform: translate(4%, 0); filter: hue-rotate(-90deg); } 30% { transform: translate(-5%, 2%); clip-path: inset(20% 0 40% 0); } 60% { opacity: .5; transform: translate(3%, -2%); } 100% { opacity: 0; } }
+/* esplosione di luce: lampo, la vecchia si dissolve verso l'esterno, la nuova salta fuori */
+#art .img.tfx-in-burst { animation: tfxBurstIn var(--tfxd) cubic-bezier(.3, 1.6, .4, 1) both; }
+#art .img.old.tfx-out-burst { animation: tfxBurstOut calc(var(--tfxd) * .5) ease-out both; }
+@keyframes tfxBurstIn { 0% { transform: scale(.45); opacity: 0; filter: brightness(2.6); } 40% { opacity: 1; } 100% { transform: scale(1); filter: none; } }
+@keyframes tfxBurstOut { to { transform: scale(1.5); opacity: 0; filter: brightness(2.5) blur(6px); } }
+
+/* titolo e artista */
+#caption.cap-anim .t, #caption.cap-anim .a { animation: capUp calc(var(--tfxd, .9s) * .9) cubic-bezier(.2, .8, .2, 1) both; }
+#caption.cap-anim .a { animation-delay: calc(var(--tfxd, .9s) * .12); }
+#caption.cap-slide .t, #caption.cap-slide .a { animation-name: capSlide; }
+#caption.cap-flip .t, #caption.cap-flip .a { animation-name: capFlip; }
+#caption.cap-glitch .t, #caption.cap-glitch .a { animation-name: capGlitch; animation-timing-function: steps(1, end); }
+#caption.cap-burst .t, #caption.cap-burst .a { animation-name: capBurst; }
+@keyframes capUp { from { opacity: 0; transform: translateY(.5em); filter: blur(6px); } }
+@keyframes capSlide { from { opacity: 0; transform: translateX(40%); } }
+@keyframes capFlip { from { opacity: 0; transform: perspective(400px) rotateX(90deg); } }
+@keyframes capGlitch { 0% { opacity: 0; } 15% { opacity: 1; transform: translateX(-8px); color: #ff3d8b; } 30% { transform: translateX(6px); color: #4ad6ff; } 45% { transform: translateX(-3px); } 60% { transform: none; color: inherit; } }
+@keyframes capBurst { from { opacity: 0; transform: scale(1.5); letter-spacing: .6em; filter: blur(4px); } }
 
 /* ---------- didascalia ---------- */
 #caption {
