@@ -128,6 +128,18 @@ pub struct Shared {
     pub upd: Mutex<UpdState>,
 }
 
+/// Client HTTP condiviso, con il TLS di Windows (ureq non lo usa da solo per le chiamate rapide `ureq::get`).
+pub fn http() -> &'static ureq::Agent {
+    static A: LazyLock<ureq::Agent> = LazyLock::new(|| {
+        let mut b = ureq::AgentBuilder::new();
+        if let Ok(tls) = native_tls::TlsConnector::new() {
+            b = b.tls_connector(std::sync::Arc::new(tls));
+        }
+        b.build()
+    });
+    &A
+}
+
 pub static S: LazyLock<Shared> = LazyLock::new(|| Shared {
     track: Mutex::new(Track { art_mime: "image/jpeg".into(), ..Default::default() }),
     play: Mutex::new(Play { playing: false, pos: 0.0, dur: 0.0, t_ref: Instant::now() }),

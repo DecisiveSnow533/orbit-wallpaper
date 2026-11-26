@@ -34,13 +34,13 @@ const DEFAULTS = {
   wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wStyle: 'glass', wFont: 'default', wUpper: false, wNumbers: false,
   wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', showCenter: true, lastWidget: 'queue',
   trackFx: 'zoom', trackFxSpeed: 100, fxTest: 0,
-  secCustom: false, secondary: {}, handoff: false,
+  secCustom: false, secondary: {}, handoff: false, secFps: '30',
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
   profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
 };
 let cfg = { ...DEFAULTS };
 /* Un profilo salva solo l'aspetto: le scelte legate al PC (monitor, avvio con Windows…) restano fuori. */
-const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary', 'fxTest', 'handoff']);
+const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary', 'fxTest', 'handoff', 'secFps']);
 /* Schermi secondari (con «tutti i monitor» e «Personalizza»): cosa mostrare e dove. Di base solo lo sfondo. */
 const SEC_DEFAULTS = {
   showCenter: false, ringSize: 100, artX: 0, artY: 0, captionSize: 100,
@@ -173,6 +173,8 @@ const SCHEMA = [
   SCHEMA.push({ t: 'Schermi secondari', when: (c) => c.monitor === 'all', items: [
     { k: 'secCustom', type: 'toggle', label: 'Scegli cosa mostrare sugli schermi secondari (spento: uguali al principale)' },
     { k: 'handoff', type: 'toggle', label: 'Quando il principale è coperto, i secondari mostrano i suoi contenuti', when: (c) => c.monitor === 'all' },
+    { k: 'secFps', type: 'select', label: 'Fluidità degli schermi secondari', opts: [['30', '30 FPS (più leggero)'], ['60', '60 FPS'], ['same', 'Come il principale']],
+      when: (c) => c.monitor === 'all' },
     // cosa mostrare: un interruttore per ogni cosa
     S('showCenter'), S('showLyrics'), S('showWidget'), S('showClock'), S('showDate'), S('spectrumBottom'),
     // posizione e dimensione di ciò che è acceso
@@ -1128,6 +1130,10 @@ function drawRing(dt, now) {
   bassAvg += (bassFast - bassAvg) * (1 - Math.exp(-dt * 1.4));
   if (live && bassFast > bassAvg * 1.28 + 0.06 && now - lastBeat > 230) onBeat((bassFast - bassAvg) * 3.2, now);
   beatEnergy *= Math.exp(-dt * 4.2);
+  // solo sui testi e solo quando cambia davvero: aggiornarla su tutta la pagina a ogni fotogramma costa parecchio
+  const bq = beatEnergy < 0.01 ? 0 : Math.round(beatEnergy * 50) / 50;
+  if (bq !== lastBeatVar) { lastBeatVar = bq; lyricsEl.style.setProperty('--beat', bq); }
+  if (!cfg.showCenter) return;                    // copertina e anello spenti (es. schermi secondari): sopra serve solo l'audio
 
   const c = rc, S = ringCss;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1140,7 +1146,13 @@ function drawRing(dt, now) {
     return lerp(sm[i0], sm[i1], f - i0);
   };
   c.lineCap = 'round'; c.lineJoin = 'round';
-  c.strokeStyle = `rgb(${light.join(',')})`; c.shadowColor = `rgba(${acc.join(',')},.95)`; c.shadowBlur = artR * 0.2;
+  const lightS = `rgb(${light.join(',')})`;
+  // alone: due passate larghe e trasparenti nel colore del brano sotto al tratto (al posto di shadowBlur, che sfoca a ogni fotogramma)
+  const glowStroke = (w) => {
+    c.strokeStyle = `rgba(${acc.join(',')},.16)`; c.lineWidth = w * 4.2; c.stroke();
+    c.strokeStyle = `rgba(${acc.join(',')},.32)`; c.lineWidth = w * 2.2; c.stroke();
+    c.strokeStyle = lightS; c.lineWidth = w; c.stroke();
+  };
   if (cfg.ringStyle === 'wave') {
     const K = 120, pts = [], raw = [];
     for (let k = 0; k < K; k++) raw.push(val(k / K));
@@ -1155,56 +1167,68 @@ function drawRing(dt, now) {
     for (let k = 0; k < K; k++) { const p = pts[k], q = pts[(k + 1) % K]; c.quadraticCurveTo(p[0], p[1], (p[0] + q[0]) / 2, (p[1] + q[1]) / 2); }
     c.closePath();
     c.fillStyle = `rgba(${acc.join(',')},.1)`; c.fill();
-    c.lineWidth = Math.max(2, artR * 0.035); c.stroke();
+    glowStroke(Math.max(2, artR * 0.035));
   } else if (cfg.ringStyle === 'dots') {
-    c.fillStyle = `rgb(${light.join(',')})`;
+    // tutti i punti in un solo tracciato: tre riempimenti in totale invece di uno per punto
+    const rd = Math.max(1.4, artR * 0.022), pos = [];
     for (let k = 0; k < BARS; k++) {
       const ang = k / BARS * Math.PI * 2 - Math.PI / 2 + rot, len = artR * 0.05 + Math.pow(val(k / BARS), 0.8) * maxLen;
-      c.beginPath(); c.arc(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len), Math.max(1.4, artR * 0.022), 0, 6.283); c.fill();
+      pos.push(cx + Math.cos(ang) * (r0 + len), cy + Math.sin(ang) * (r0 + len));
     }
+    const dots = (r) => { c.beginPath(); for (let i = 0; i < pos.length; i += 2) { c.moveTo(pos[i] + r, pos[i + 1]); c.arc(pos[i], pos[i + 1], r, 0, 6.283); } c.fill(); };
+    c.fillStyle = `rgba(${acc.join(',')},.16)`; dots(rd * 2.6);
+    c.fillStyle = `rgba(${acc.join(',')},.32)`; dots(rd * 1.7);
+    c.fillStyle = lightS; dots(rd);
   } else {
-    c.lineWidth = Math.max(1.6, artR * 0.03);
     c.beginPath();
     for (let k = 0; k < BARS; k++) {
       const ang = k / BARS * Math.PI * 2 - Math.PI / 2 + rot, len = artR * 0.05 + Math.pow(val(k / BARS), 0.8) * maxLen;
       const ca = Math.cos(ang), sa = Math.sin(ang);
       c.moveTo(cx + ca * r0, cy + sa * r0); c.lineTo(cx + ca * (r0 + len), cy + sa * (r0 + len));
     }
-    c.stroke();
+    glowStroke(Math.max(1.6, artR * 0.03));
   }
   // filo + arco di avanzamento
-  c.shadowBlur = 0; c.lineWidth = 1; c.strokeStyle = `rgba(${light.join(',')},.22)`;
+  c.lineWidth = 1; c.strokeStyle = `rgba(${light.join(',')},.22)`;
   c.beginPath(); c.arc(cx, cy, artR * 1.07, 0, Math.PI * 2); c.stroke();
   if (state.duration && state.title) {
     const prog = clamp(getPos() / state.duration, 0, 1);
-    c.shadowColor = `rgba(${acc.join(',')},1)`; c.shadowBlur = artR * 0.12;
-    c.lineWidth = Math.max(2, artR * 0.022); c.strokeStyle = `rgb(${light.join(',')})`;
-    c.beginPath(); c.arc(cx, cy, artR * 1.07, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2); c.stroke();
+    c.beginPath(); c.arc(cx, cy, artR * 1.07, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
+    glowStroke(Math.max(2, artR * 0.022));
   }
 
   const pulse = clamp(bassSm * 1.15 + beatEnergy * 0.35, 0, 1);
   if (cfg.rotateArt && state.playing) artAngle += dt * 7;
-  $('#art').style.transform = `rotate(${artAngle.toFixed(2)}deg) scale(${(1 + (cfg.pulseArt ? pulse * 0.04 : 0)).toFixed(4)})`;
-  const gl2 = $('#glow');
-  gl2.style.opacity = clamp((0.45 + pulse * 0.5) * cfg.glowStrength / 100, 0, 1).toFixed(3);
-  gl2.style.transform = `scale(${1 + pulse * 0.2})`;
-  // solo sui testi e solo quando cambia davvero: aggiornarla su tutta la pagina a ogni fotogramma costa parecchio
-  const bq = beatEnergy < 0.01 ? 0 : Math.round(beatEnergy * 50) / 50;
-  if (bq !== lastBeatVar) { lastBeatVar = bq; lyricsEl.style.setProperty('--beat', bq); }
+  // stili scritti solo quando cambiano: ogni scrittura fa ricalcolare la pagina
+  const at = `rotate(${artAngle.toFixed(1)}deg) scale(${(1 + (cfg.pulseArt ? pulse * 0.04 : 0)).toFixed(3)})`;
+  if (at !== styleCache.art) { styleCache.art = at; artEl.style.transform = at; }
+  const go = clamp((0.45 + pulse * 0.5) * cfg.glowStrength / 100, 0, 1).toFixed(2), gt = `scale(${(1 + pulse * 0.2).toFixed(3)})`;
+  if (go !== styleCache.go) { styleCache.go = go; glowEl.style.opacity = go; }
+  if (gt !== styleCache.gt) { styleCache.gt = gt; glowEl.style.transform = gt; }
 }
+const artEl = $('#art'), glowEl = $('#glow'), styleCache = { art: '', go: '', gt: '' };
 
+const starBins = Array.from({ length: 8 }, () => []), partBins = Array.from({ length: 6 }, () => []);
+const STAR_FILL = Array.from({ length: 8 }, (_, k) => `rgba(255,255,255,${((k + 0.5) / 8.4).toFixed(3)})`);
 function drawFx(dt, now) {
   const W = window.innerWidth, H = window.innerHeight, t = now / 1000;
   mxs += (mx - mxs) * (1 - Math.exp(-dt * 2)); mys += (my - mys) * (1 - Math.exp(-dt * 2));
   fc.clearRect(0, 0, W, H);
   const dr = cfg.drift ? 1 : 0;
   if ((cfg.showStars || cfg.bg === 'stars') && cfg.bg !== 'warp') {
+    // stelle raggruppate in 8 livelli di luminosità: 8 riempimenti invece di uno (con il suo colore) per ognuna delle 280
     const boost = 1 + trebleSm * 1.1, base = cfg.bg === 'stars' ? 1.35 : 0.8;
+    for (const b of starBins) b.length = 0;
     for (const s of stars) {
       const px = (((s.x - t * 0.004 * s.z) % 1) + 1) % 1 * W + mxs * 14 * s.z * dr, py = s.y * H + mys * 9 * s.z * dr;
       const a = clamp((0.14 + 0.5 * s.z) * (0.65 + 0.35 * Math.sin(t * s.sp + s.ph)) * boost * base, 0, 0.95);
-      fc.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
-      const sz = 0.6 + 1.3 * s.z; fc.fillRect(px, py, sz, sz);
+      starBins[Math.min(7, Math.floor(a * 8.4))].push(px, py, 0.6 + 1.3 * s.z);
+    }
+    for (let k = 0; k < 8; k++) {
+      const b = starBins[k]; if (!b.length) continue;
+      fc.fillStyle = STAR_FILL[k]; fc.beginPath();
+      for (let i = 0; i < b.length; i += 3) fc.rect(b[i], b[i + 1], b[i + 2], b[i + 2]);
+      fc.fill();
     }
   }
   const light = accent.map((v) => Math.round(lerp(v, 255, 0.6)));
@@ -1216,15 +1240,22 @@ function drawFx(dt, now) {
     fc.strokeStyle = `rgba(${light.join(',')},${a.toFixed(3)})`; fc.lineWidth = 0.6 + 2.4 * (1 - age);
     fc.beginPath(); fc.arc(artCx, artCy, r, 0, Math.PI * 2); fc.stroke();
   }
-  if (cfg.showParticles && (state.playing || now - audioSeen < 1200) && Math.random() < (5 + energySm * 40) * dt) spawn(1, energySm);
+  if (cfg.showParticles && cfg.showCenter && (state.playing || now - audioSeen < 1200) && Math.random() < (5 + energySm * 40) * dt) spawn(1, energySm);
+  // particelle raggruppate per trasparenza (6 livelli): un riempimento per livello
+  for (const b of partBins) b.length = 0;
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i]; p.life += dt;
     if (p.life >= p.max) { parts.splice(i, 1); continue; }
     p.vx *= 1 - 0.28 * dt; p.vy *= 1 - 0.28 * dt;
     p.x += p.vx * dt + Math.sin(t * 1.3 + p.max * 5) * 6 * dt; p.y += p.vy * dt;
     const f = p.life / p.max, a = Math.sin(f * Math.PI) * 0.75;
-    fc.fillStyle = `rgba(${light.join(',')},${a.toFixed(3)})`;
-    fc.beginPath(); fc.arc(p.x, p.y, p.size * (1 - f * 0.4), 0, 6.283); fc.fill();
+    partBins[Math.min(5, Math.floor(a / 0.75 * 6))].push(p.x, p.y, p.size * (1 - f * 0.4));
+  }
+  for (let k = 0; k < 6; k++) {
+    const b = partBins[k]; if (!b.length) continue;
+    fc.fillStyle = `rgba(${light.join(',')},${((k + 0.5) / 6 * 0.75).toFixed(3)})`; fc.beginPath();
+    for (let i = 0; i < b.length; i += 3) { fc.moveTo(b[i] + b[i + 2], b[i + 1]); fc.arc(b[i], b[i + 1], b[i + 2], 0, 6.283); }
+    fc.fill();
   }
   fc.globalCompositeOperation = 'source-over';
 }
@@ -1610,6 +1641,12 @@ window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(()
  *  Ciclo di disegno
  * ====================================================================== */
 let last = performance.now();
+// fotogrammi al secondo: gli schermi secondari hanno la loro fluidità (di base 30), tranne durante il passaggio dal principale
+function fpsNow() {
+  const sec = WALL && MON !== undefined && !monPrimary && cfg.monitor === 'all' && !(cfg.handoff && handoffOn);
+  const v = sec && cfg.secFps !== 'same' ? cfg.secFps : cfg.fps;
+  return Number(v) || 60;
+}
 const capBar = $('#caption .p i'), capTime = $('#caption .tm');
 let capW = '', capTm = null;
 let lastMouse = 0;
@@ -1623,7 +1660,7 @@ function frame(now) {
   const idle = idleNow(now);
   document.body.classList.toggle('paused', idle);
   if (idle) { setTimeout(() => requestAnimationFrame(frame), 400); return; }     // niente disegno
-  if (now - last < 1000 / (Number(cfg.fps) || 60) - 2.5) { requestAnimationFrame(frame); return; }          // limite di fotogrammi
+  if (now - last < 1000 / fpsNow() - 2.5) { requestAnimationFrame(frame); return; }          // limite di fotogrammi
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   if (demo.on) runDemo(now);
   tAcc += dt * (cfg.bgSpeed / 100) * (1 + energySm * 1.6);

@@ -1,6 +1,6 @@
 [package]
 name = "spotify-orbit"
-version = "2.5.0"
+version = "2.6.0"
 description = "Sfondo animato per Windows che reagisce alla musica"
 edition = "2021"
 publish = false
@@ -20,7 +20,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 cpal = "0.15"
 rustfft = "6"
-ureq = { version = "2", features = ["json"] }
+# HTTPS con il TLS di Windows (SChannel): niente rustls e certificati radice dentro all'exe; niente gzip (non serve)
+ureq = { version = "2", default-features = false, features = ["json", "native-tls"] }
+native-tls = "0.2"
 sha2 = "0.10"
 base64 = "0.22"
 rand = "0.8"
@@ -45,7 +47,7 @@ features = [
 ]
 
 [profile.release]
-opt-level = 3
+opt-level = "s"     # ottimizzato per le dimensioni: il motore usa meno dell'1% di CPU, la velocità in più non serve
 lto = true
 codegen-units = 1
 strip = true

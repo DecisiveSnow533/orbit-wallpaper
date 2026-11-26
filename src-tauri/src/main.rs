@@ -63,7 +63,7 @@ fn main() {
     let Some(listener) = http::bind() else {
         // c'è già una copia in esecuzione: le chiedo di aprire le impostazioni ed esco
         if !nowindow {
-            let _ = ureq::post(&format!("{}api/open-settings", url())).timeout(Duration::from_secs(5)).send_bytes(&[]);
+            let _ = crate::state::http().post(&format!("{}api/open-settings", url())).timeout(Duration::from_secs(5)).send_bytes(&[]);
         }
         return;
     };

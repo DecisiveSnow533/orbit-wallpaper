@@ -53,7 +53,7 @@ fn set(f: impl FnOnce(&mut crate::state::UpdState)) {
 
 /// Chiede a GitHub l'ultima release (richiesta anonima). true se è più nuova.
 pub fn check() -> Result<bool, String> {
-    let d: Value = ureq::get(API)
+    let d: Value = crate::state::http().get(API)
         .set("User-Agent", "orbit-wallpaper-update-check")
         .set("Accept", "application/vnd.github+json")
         .timeout(Duration::from_secs(10))
@@ -163,7 +163,7 @@ fn download_and_run(asset: &Asset) -> Result<(), String> {
         u.progress = 0;
         u.msg.clear();
     });
-    let r = ureq::get(&asset.url).set("User-Agent", "orbit-wallpaper-update").timeout(Duration::from_secs(120)).call().map_err(|e| e.to_string())?;
+    let r = crate::state::http().get(&asset.url).set("User-Agent", "orbit-wallpaper-update").timeout(Duration::from_secs(120)).call().map_err(|e| e.to_string())?;
     let total: u64 = r.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(asset.size);
     let mut rd = r.into_reader();
     let mut f = std::fs::File::create(&path).map_err(|e| e.to_string())?;

@@ -136,7 +136,7 @@ pub fn logout() {
 }
 
 fn post_token(form: &[(&str, &str)]) -> Result<(u16, Value), String> {
-    match ureq::post(TOKEN).timeout(Duration::from_secs(10)).send_form(form) {
+    match crate::state::http().post(TOKEN).timeout(Duration::from_secs(10)).send_form(form) {
         Ok(r) => Ok((r.status(), r.into_json::<Value>().unwrap_or(Value::Null))),
         Err(ureq::Error::Status(c, r)) => Ok((c, r.into_json::<Value>().unwrap_or(Value::Null))),
         Err(e) => Err(e.to_string()),
@@ -217,7 +217,7 @@ fn fetch() -> Option<f64> {
         }
     }
     let tok = SP.lock().unwrap().access.clone();
-    let res = ureq::get(QUEUE).set("Authorization", &format!("Bearer {tok}")).timeout(Duration::from_secs(10)).call();
+    let res = crate::state::http().get(QUEUE).set("Authorization", &format!("Bearer {tok}")).timeout(Duration::from_secs(10)).call();
     let (code, body, retry) = match res {
         Ok(r) => (r.status(), r.into_string().unwrap_or_default(), None),
         Err(ureq::Error::Status(c, r)) => {
