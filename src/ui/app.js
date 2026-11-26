@@ -11,7 +11,11 @@ const CID = Math.random().toString(36).slice(2);        // identifica questa pag
 const MON = (location.search.match(/[?&]mon=(\d+)/) || [])[1];     // indice del monitor (solo per lo sfondo del desktop)
 let paused = false;
 let monPrimary = true;                                   // questo sfondo sta sul monitor principale? (lo chiede init)
-let prevLyrics = null;                                   // per scaricare i testi quando vengono riaccesi
+let primaryMon = '0';                                    // indice del monitor principale (per copiarne il profilo nel passaggio)
+let baseCfg = null;                                      // impostazioni salvate, prima di profilo/schermi secondari (serve a rifare effective())
+let handoffOn = false;                                   // «passaggio»: il principale è coperto, i secondari mostrano i suoi contenuti
+let pzSince = 0, pzLast = 0;                             // debounce di f.pz: da quando vale 1 / da quando vale 0 (ms, performance.now)
+let prevLyrics = null;                                 // per scaricare i testi quando vengono riaccesi
 
 /* ====================================================================== *
  *  Impostazioni
@@ -28,13 +32,13 @@ const DEFAULTS = {
   wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wStyle: 'glass', wFont: 'default', wUpper: false, wNumbers: false,
   wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', showCenter: true, lastWidget: 'queue',
   trackFx: 'zoom', trackFxSpeed: 100, fxTest: 0,
-  secCustom: false, secondary: {},
+  secCustom: false, secondary: {}, handoff: false,
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
   profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
 };
 let cfg = { ...DEFAULTS };
 /* Un profilo salva solo l'aspetto: le scelte legate al PC (monitor, avvio con Windows…) restano fuori. */
-const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary', 'fxTest']);
+const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary', 'fxTest', 'handoff']);
 /* Schermi secondari (con «tutti i monitor» e «Personalizza»): cosa mostrare e dove. Di base solo lo sfondo. */
 const SEC_DEFAULTS = {
   showCenter: false, ringSize: 100, artX: 0, artY: 0, captionSize: 100,
@@ -45,13 +49,15 @@ const SEC_DEFAULTS = {
 };
 const secOf = (c) => ({ ...SEC_DEFAULTS, ...(c.secondary || {}) });
 /* Con «tutti i monitor» ogni schermo può avere il suo profilo: la pagina dello sfondo lo applica sopra le impostazioni;
- * sugli schermi secondari personalizzati valgono poi le scelte della sezione «Schermi secondari». */
+ * sugli schermi secondari personalizzati valgono poi le scelte della sezione «Schermi secondari».
+ * Passaggio (handoff): mentre il principale è coperto un secondario diventa una copia del principale, profilo compreso. */
 function effective(c) {
   if (!WALL || MON === undefined || c.monitor !== 'all') return c;
-  const name = (c.monitorProfiles || {})[MON];
+  const ho = !monPrimary && !!c.handoff && handoffOn;
+  const name = (c.monitorProfiles || {})[ho ? primaryMon : MON];
   const p = name && (Array.isArray(c.profiles) ? c.profiles : []).find((x) => x && x.name === name);
   let r = p && p.v ? { ...c, ...p.v } : c;
-  if (!monPrimary && c.secCustom) r = { ...r, ...secOf(c) };
+  if (!monPrimary && c.secCustom && !ho) r = { ...r, ...secOf(c) };
   return r;
 }
 
@@ -164,6 +170,7 @@ const SCHEMA = [
   const S = (k, label, w) => ({ ...base(k), k: 'secondary.' + k, label: label || base(k).label, when: (c) => on(c) && (!w || !!w(secOf(c))) });
   SCHEMA.push({ t: 'Schermi secondari', when: (c) => c.monitor === 'all', items: [
     { k: 'secCustom', type: 'toggle', label: 'Scegli cosa mostrare sugli schermi secondari (spento: uguali al principale)' },
+    { k: 'handoff', type: 'toggle', label: 'Quando il principale è coperto, i secondari mostrano i suoi contenuti', when: (c) => c.monitor === 'all' },
     // cosa mostrare: un interruttore per ogni cosa
     S('showCenter'), S('showLyrics'), S('showWidget'), S('showClock'), S('showDate'), S('spectrumBottom'),
     // posizione e dimensione di ciò che è acceso
@@ -551,7 +558,7 @@ async function loadCfg() {
     const d = await r.json();
     cfg = { ...DEFAULTS, ...d };
     if (d.showRecent === false && !d.sideWidget) cfg.sideWidget = 'none';     // impostazione della versione precedente
-    cfg = effective(migrate(cfg, d));
+    baseCfg = migrate(cfg, d); cfg = effective(baseCfg);
   } catch (e) { /* valori predefiniti */ }
 }
 
@@ -1448,12 +1455,24 @@ function connect() {
     const m = JSON.parse(e.data);
     if (m.cid === CID) return;
     const prevTest = cfg.fxTest;
-    cfg = effective(migrate({ ...DEFAULTS, ...m.cfg }, m.cfg)); refreshPanel(); applyCfg();
+    baseCfg = migrate({ ...DEFAULTS, ...m.cfg }, m.cfg); cfg = effective(baseCfg); refreshPanel(); applyCfg();
     if (cfg.fxTest && cfg.fxTest !== prevTest) replayFx();   // «Prova» premuto nelle impostazioni
   });
   es.onmessage = (e) => {
     const f = JSON.parse(e.data);
     paused = !!f.z;
+    if (WALL && !monPrimary) {                               // passaggio al secondario: f.pz = 1 se il principale è coperto (assente = 0)
+      const now = performance.now();
+      if (f.pz) { pzLast = 0; if (!pzSince) pzSince = now; } else { pzSince = 0; if (!pzLast) pzLast = now; }
+      const want = f.pz ? (handoffOn || now - pzSince >= 1000) : (handoffOn && now - pzLast < 600);   // acceso dopo 1 s di copertura, spento dopo 0,6 s libero
+      if (want !== handoffOn) {
+        handoffOn = want;
+        if (baseCfg && baseCfg.handoff && baseCfg.monitor === 'all') {
+          cfg = effective(baseCfg); applyCfg();
+          const st = $('#stage'); st.classList.remove('handoff-in'); void st.offsetWidth; st.classList.add('handoff-in');   // ingresso morbido
+        }
+      }
+    }
     if (demo.on) return;
     state.pos = f.p; state.posT = performance.now(); state.playing = !!f.pl;
     if (f.d) state.duration = f.d;
@@ -1605,7 +1624,7 @@ function frame(now) {
 
 async function init() {
   if (WALL && MON !== undefined) {                         // su quale monitor sta questo sfondo: serve prima delle impostazioni (schermi secondari)
-    try { const l = await (await fetch('/api/monitors')).json(); const m = l.find((x) => String(x.i) === MON); monPrimary = !m || !!m.primary; } catch (e) { /* principale */ }
+    try { const l = await (await fetch('/api/monitors')).json(); const m = l.find((x) => String(x.i) === MON); monPrimary = !m || !!m.primary; const pm = l.find((x) => x.primary); if (pm) primaryMon = String(pm.i); } catch (e) { /* principale */ }
   }
   await loadCfg();
   if (WALL) { document.body.classList.add('wall'); document.title = 'SpotifyOrbitWallpaper[' + (MON === undefined ? '0' : MON) + ']'; }

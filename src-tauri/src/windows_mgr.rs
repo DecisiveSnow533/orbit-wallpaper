@@ -94,7 +94,20 @@ pub fn thread(app: AppHandle) {
             }
         }
         let pc = cfg_bool("pauseCovered", true);
-        let cm: HashMap<i32, bool> = t.iter().map(|m| (m.i, pc && desktop::covered(m))).collect();
+        // copertura grezza, senza «pauseCovered»: una sola chiamata per monitor a ogni giro
+        let raw: HashMap<i32, bool> = t.iter().map(|m| (m.i, desktop::covered(m))).collect();
+        let cm: HashMap<i32, bool> = raw.iter().map(|(i, c)| (*i, pc && *c)).collect();
+        // il principale coperto, anche se «pauseCovered» è spento (per gli schermi secondari)
+        let primary_cov = if S.wall_enabled.load(Ordering::SeqCst) && cfg_str("monitor") == "all" {
+            desktop::monitors()
+                .iter()
+                .find(|m| m.primary)
+                .map(|p| raw.get(&p.i).copied().unwrap_or_else(|| desktop::covered(p)))
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        S.primary_covered.store(primary_cov, Ordering::SeqCst);
         S.covered.store(cm.values().any(|v| *v), Ordering::SeqCst);
         *S.covered_map.lock().unwrap() = cm.clone();
         for (i, cov) in &cm {

@@ -320,6 +320,9 @@ body.no-wartist #cards .tx em, body.no-wartist #tl em, body.no-wartist #disc .li
 body.is-playing #cards .eq i { animation-play-state: running; }
 #cards .eq i:nth-child(2) { animation-delay: -.3s; } #cards .eq i:nth-child(3) { animation-delay: -.6s; } #cards .eq i:nth-child(4) { animation-delay: -.15s; }
 @keyframes eq { 0%, 100% { height: 20%; } 50% { height: 100%; } }
+/* passaggio al secondario: i contenuti compaiono con una dissolvenza e un leggero zoom */
+#stage.handoff-in { animation: handoffIn .7s ease-out; }
+@keyframes handoffIn { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes cardIn { from { opacity: 0; transform: translateX(-14px); } }
 
 /* ---------- coda di Spotify: intestazione, brano in corso, «Subito dopo» in evidenza, elenco dei successivi ---------- */
