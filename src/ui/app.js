@@ -12,6 +12,8 @@ const MON = (location.search.match(/[?&]mon=(\d+)/) || [])[1];     // indice del
 let paused = false;
 let monPrimary = true;                                   // questo sfondo sta sul monitor principale? (lo chiede init)
 let primaryMon = '0';                                    // indice del monitor principale (per copiarne il profilo nel passaggio)
+let hasOther = false;                                    // c'è un altro monitor con cui passarsi i contenuti
+let hoT = 0;                                             // timer dell'animazione di uscita del passaggio
 let baseCfg = null;                                      // impostazioni salvate, prima di profilo/schermi secondari (serve a rifare effective())
 let handoffOn = false;                                   // «passaggio»: il principale è coperto, i secondari mostrano i suoi contenuti
 let pzSince = 0, pzLast = 0;                             // debounce di f.pz: da quando vale 1 / da quando vale 0 (ms, performance.now)
@@ -1467,10 +1469,14 @@ function connect() {
       const want = f.pz ? (handoffOn || now - pzSince >= 1000) : (handoffOn && now - pzLast < 600);   // acceso dopo 1 s di copertura, spento dopo 0,6 s libero
       if (want !== handoffOn) {
         handoffOn = want;
-        if (baseCfg && baseCfg.handoff && baseCfg.monitor === 'all') {
-          cfg = effective(baseCfg); applyCfg();
-          const st = $('#stage'); st.classList.remove('handoff-in'); void st.offsetWidth; st.classList.add('handoff-in');   // ingresso morbido
-        }
+        if (baseCfg && baseCfg.handoff && baseCfg.monitor === 'all') handoffAnim(want);
+      }
+    } else if (WALL && hasOther) {                           // principale: quando torna libero dopo un passaggio, i contenuti «rientrano»
+      const now = performance.now();
+      if (f.pz) { if (!pzSince) pzSince = now; }
+      else if (pzSince) {
+        const long = now - pzSince >= 1000; pzSince = 0;
+        if (long && baseCfg && baseCfg.handoff && baseCfg.monitor === 'all') { hoPlay('ho-back'); hoSweep(); }
       }
     }
     if (demo.on) return;
@@ -1480,6 +1486,23 @@ function connect() {
     for (let i = 0; i < NB; i++) arr[i] = a[i] / 255;
     onAudio(arr);
   };
+}
+
+/* --- animazioni del passaggio tra monitor ---
+ * secondario, andata: un fascio di luce attraversa lo schermo dal lato del principale e i contenuti arrivano da lì;
+ * secondario, ritorno: i contenuti volano verso il principale, poi ricompaiono i propri;
+ * principale, ritorno: i contenuti rientrano dal lato del secondario. */
+function hoPlay(cls) {
+  const st = $('#stage');
+  st.classList.remove('ho-in', 'ho-out', 'ho-back', 'ho-fade'); void st.offsetWidth;
+  if (cls) st.classList.add(cls);
+}
+function hoSweep() { const s = $('#hoSweep'); if (!s) return; s.classList.remove('go'); void s.offsetWidth; s.classList.add('go'); }
+function handoffAnim(on) {
+  clearTimeout(hoT);
+  const swap = () => { cfg = effective(baseCfg); applyCfg(); };
+  if (on) { swap(); hoPlay('ho-in'); hoSweep(); }
+  else { hoPlay('ho-out'); hoT = setTimeout(() => { swap(); hoPlay('ho-fade'); }, 560); }
 }
 
 function api(cmd) { fetch('/api/cmd?c=' + cmd, { method: 'POST' }).catch(() => {}); }
@@ -1624,7 +1647,20 @@ function frame(now) {
 
 async function init() {
   if (WALL && MON !== undefined) {                         // su quale monitor sta questo sfondo: serve prima delle impostazioni (schermi secondari)
-    try { const l = await (await fetch('/api/monitors')).json(); const m = l.find((x) => String(x.i) === MON); monPrimary = !m || !!m.primary; const pm = l.find((x) => x.primary); if (pm) primaryMon = String(pm.i); } catch (e) { /* principale */ }
+    try {
+      const l = await (await fetch('/api/monitors')).json(); const m = l.find((x) => String(x.i) === MON); monPrimary = !m || !!m.primary;
+      const pm = l.find((x) => x.primary); if (pm) primaryMon = String(pm.i);
+      // da che parte sta «l'altro» monitor (il principale per un secondario, il primo secondario per il principale):
+      // le animazioni del passaggio fanno arrivare e partire i contenuti proprio da quel lato
+      const other = monPrimary ? l.find((x) => !x.primary) : pm;
+      if (m && other) {
+        hasOther = true;
+        const dx = (other.x + other.w / 2) - (m.x + m.w / 2), dy = (other.y + other.h / 2) - (m.y + m.h / 2);
+        const horiz = Math.abs(dx) >= Math.abs(dy), r = document.documentElement.style;
+        r.setProperty('--hx', horiz ? Math.sign(dx) || 1 : 0); r.setProperty('--hy', horiz ? 0 : Math.sign(dy) || 1);
+        r.setProperty('--hdeg', horiz ? '90deg' : '180deg');
+      }
+    } catch (e) { /* principale */ }
   }
   await loadCfg();
   if (WALL) { document.body.classList.add('wall'); document.title = 'SpotifyOrbitWallpaper[' + (MON === undefined ? '0' : MON) + ']'; }
