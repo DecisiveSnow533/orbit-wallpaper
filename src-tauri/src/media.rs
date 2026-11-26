@@ -185,7 +185,9 @@ pub fn thread() {
                         log(format!("media: {e}"));
                         std::thread::sleep(Duration::from_millis(1500));
                     }
-                    std::thread::sleep(Duration::from_millis(300));
+                    // durante giochi e film a schermo intero basta controllare il brano più di rado
+                    let slow = S.yielding.load(std::sync::atomic::Ordering::Relaxed);
+                    std::thread::sleep(Duration::from_millis(if slow { 1500 } else { 300 }));
                 }
             }
             Err(e) => {

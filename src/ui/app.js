@@ -12,6 +12,7 @@ const MON = (location.search.match(/[?&]mon=(\d+)/) || [])[1];     // indice del
 let paused = false;
 let monPrimary = true;                                   // questo sfondo sta sul monitor principale? (lo chiede init)
 let primaryMon = '0';                                    // indice del monitor principale (per copiarne il profilo nel passaggio)
+let modeNoteEl = null, lastY = -1;                       // riga «Adesso Orbit è…» nella sezione Modalità
 let hasOther = false;                                    // c'è un altro monitor con cui passarsi i contenuti
 let hoT = 0;                                             // timer dell'animazione di uscita del passaggio
 let baseCfg = null;                                      // impostazioni salvate, prima di profilo/schermi secondari (serve a rifare effective())
@@ -34,13 +35,13 @@ const DEFAULTS = {
   wScale: 100, wCount: 4, wSide: 'left', wX: 0, wY: 0, wOpacity: 100, wStyle: 'glass', wFont: 'default', wUpper: false, wNumbers: false,
   wThumbs: true, wArtist: true, wNow: true, queueEvery: '7', qLayout: 'list', wVert: 'bottom', showCenter: true, lastWidget: 'queue',
   trackFx: 'zoom', trackFxSpeed: 100, fxTest: 0,
-  secCustom: false, secondary: {}, handoff: false, secFps: '30',
+  secCustom: false, secondary: {}, handoff: false, secFps: '30', perfMode: 'balanced', yieldFullscreen: true,
   artX: 0, artY: 0, captionSize: 100, glowStrength: 100, specHeight: 100,
   profiles: [], profile: '', monitorProfiles: {}, checkUpdates: true, skipVersion: '',
 };
 let cfg = { ...DEFAULTS };
 /* Un profilo salva solo l'aspetto: le scelte legate al PC (monitor, avvio con Windows…) restano fuori. */
-const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary', 'fxTest', 'handoff', 'secFps']);
+const PROFILE_SKIP = new Set(['monitor', 'fps', 'pauseCovered', 'onlySpotify', 'autostart', 'profiles', 'profile', 'monitorProfiles', 'checkUpdates', 'skipVersion', 'secCustom', 'secondary', 'fxTest', 'handoff', 'secFps', 'perfMode', 'yieldFullscreen']);
 /* Schermi secondari (con «tutti i monitor» e «Personalizza»): cosa mostrare e dove. Di base solo lo sfondo. */
 const SEC_DEFAULTS = {
   showCenter: false, ringSize: 100, artX: 0, artY: 0, captionSize: 100,
@@ -54,6 +55,11 @@ const secOf = (c) => ({ ...SEC_DEFAULTS, ...(c.secondary || {}) });
  * sugli schermi secondari personalizzati valgono poi le scelte della sezione «Schermi secondari».
  * Passaggio (handoff): mentre il principale è coperto un secondario diventa una copia del principale, profilo compreso. */
 function effective(c) {
+  const r = effectiveMon(c);
+  // modalità Risparmio: sugli sfondi qualità bassa e niente particelle né onde (le impostazioni salvate non cambiano)
+  return WALL && r.perfMode === 'eco' ? { ...r, bgQuality: 'low', showParticles: false, showShocks: false } : r;
+}
+function effectiveMon(c) {
   if (!WALL || MON === undefined || c.monitor !== 'all') return c;
   const ho = !monPrimary && !!c.handoff && handoffOn;
   const name = (c.monitorProfiles || {})[ho ? primaryMon : MON];
@@ -65,6 +71,14 @@ function effective(c) {
 
 const SCHEMA = [
   { t: 'Profili', custom: 'profiles' },
+  { t: 'Modalità', items: [
+    { k: 'perfMode', type: 'select', label: 'Modalità', opts: [
+      ['quality', 'Qualità massima — sempre al massimo'],
+      ['balanced', 'Bilanciata — si ferma per giochi e film (consigliata)'],
+      ['eco', 'Risparmio — più leggera: 30 FPS, qualità bassa, meno effetti']] },
+    { k: 'yieldFullscreen', type: 'toggle', label: 'Fermati del tutto quando un gioco o un film è a schermo intero', when: (c) => c.perfMode !== 'quality' },
+    { k: 'modeNote', type: 'note', label: '', when: (c) => c.perfMode !== 'quality' && c.yieldFullscreen },
+  ] },
   { t: 'Cosa mostrare', items: [                         // un interruttore per ogni cosa: spenta sparisce del tutto
     { k: 'showCenter', type: 'toggle', label: 'Copertina e anello al centro' },
     { k: 'showCaption', type: 'toggle', label: 'Titolo e artista sotto la copertina', when: (c) => c.showCenter },
@@ -236,6 +250,9 @@ function buildPanel() {
         it.opts.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; input.appendChild(o); });
         row.append(lab, input);
         input.onchange = () => setCfg(it.k, input.value);
+      } else if (it.type === 'note') {                     // riga informativa (es. stato della modalità), testo scritto da fuori
+        row.classList.add('note'); input = document.createElement('span'); row.append(input);
+        if (it.k === 'modeNote') modeNoteEl = input;
       } else if (it.type === 'button') {
         input = document.createElement('button'); input.type = 'button'; input.className = 'mini'; input.textContent = it.text || it.label;
         row.append(lab, input);
@@ -472,7 +489,7 @@ function refreshPanel() {
   updateProfilesUI();
   for (const { it, row, input } of rows) {
     const v = getK(it.k);
-    if (it.type === 'button') { /* niente valore */ }
+    if (it.type === 'button' || it.type === 'note') { /* niente valore */ }
     else if (it.type === 'toggle') input.checked = !!v;
     else if (it.type === 'range') { input.value = v; it._val.textContent = v + (it.unit || ''); }
     else input.value = v;
@@ -1494,6 +1511,12 @@ function connect() {
   es.onmessage = (e) => {
     const f = JSON.parse(e.data);
     paused = !!f.z;
+    if (modeNoteEl && (f.y | 0) !== lastY) {                 // stato della modalità, dal motore
+      lastY = f.y | 0;
+      modeNoteEl.textContent = lastY ? '⏸ Adesso Orbit è in pausa: c\'è un gioco o un film a schermo intero. Ripartirà da solo.'
+        : 'Adesso Orbit è attivo. Si fermerà da solo quando apri un gioco o un film a schermo intero.';
+      modeNoteEl.parentElement.classList.toggle('on', !!lastY);
+    }
     if (WALL && !monPrimary) {                               // passaggio al secondario: f.pz = 1 se il principale è coperto (assente = 0)
       const now = performance.now();
       if (f.pz) { pzLast = 0; if (!pzSince) pzSince = now; } else { pzSince = 0; if (!pzLast) pzLast = now; }
@@ -1644,8 +1667,8 @@ let last = performance.now();
 // fotogrammi al secondo: gli schermi secondari hanno la loro fluidità (di base 30), tranne durante il passaggio dal principale
 function fpsNow() {
   const sec = WALL && MON !== undefined && !monPrimary && cfg.monitor === 'all' && !(cfg.handoff && handoffOn);
-  const v = sec && cfg.secFps !== 'same' ? cfg.secFps : cfg.fps;
-  return Number(v) || 60;
+  const v = Number(sec && cfg.secFps !== 'same' ? cfg.secFps : cfg.fps) || 60;
+  return cfg.perfMode === 'eco' ? Math.min(v, sec ? 20 : 30) : v;          // Risparmio: al massimo 30 (20 sui secondari)
 }
 const capBar = $('#caption .p i'), capTime = $('#caption .tm');
 let capW = '', capTm = null;

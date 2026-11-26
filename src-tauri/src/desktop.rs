@@ -17,6 +17,16 @@ pub struct Monitor {
     pub work: (i32, i32, i32, i32),
 }
 
+/// C'è un gioco, un film o una presentazione a schermo intero? (è lo stesso segnale che Windows usa per
+/// non mostrare le notifiche: giochi DirectX esclusivi, app a schermo intero anche senza bordi, presentazioni)
+pub fn fullscreen_app() -> bool {
+    use windows::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_BUSY, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN};
+    match unsafe { SHQueryUserNotificationState() } {
+        Ok(s) => s == QUNS_BUSY || s == QUNS_RUNNING_D3D_FULL_SCREEN || s == QUNS_PRESENTATION_MODE,
+        Err(_) => false,
+    }
+}
+
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }

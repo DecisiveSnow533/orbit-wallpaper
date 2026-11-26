@@ -159,7 +159,7 @@ fn status() -> Value {
         "media_ok": S.media_ok.load(Ordering::SeqCst), "title": t.title, "artist": t.artist, "playing": p.playing,
         "pos": p.pos, "dur": p.dur, "audio_dev": a.dev, "audio_peak": (a.peak * 10000.0).round() / 10000.0, "audio_err": a.err,
         "bands_max": a.bands.iter().cloned().fold(0f32, f32::max), "clients": S.clients.load(Ordering::SeqCst), "app": t.app,
-        "art_bytes": t.art.len(), "covered": S.covered.load(Ordering::SeqCst), "primary_covered": S.primary_covered.load(Ordering::SeqCst), "wall": *S.wall_state.lock().unwrap(),
+        "art_bytes": t.art.len(), "covered": S.covered.load(Ordering::SeqCst), "primary_covered": S.primary_covered.load(Ordering::SeqCst), "yielding": S.yielding.load(Ordering::SeqCst), "wall": *S.wall_state.lock().unwrap(),
         "wall_enabled": S.wall_enabled.load(Ordering::SeqCst), "version": crate::state::VERSION, "engine": "rust"
     })
 }
@@ -341,7 +341,8 @@ fn stream(s: &mut TcpStream, req: &Req) {
         out.push_str(&format!(
             "data: {}\n\n",
             json!({"a": arr, "p": (cur * 1000.0).round() / 1000.0, "pl": playing as u8, "d": (dur * 100.0).round() / 100.0,
-                   "ap": (peak * 1000.0).round() / 1000.0, "z": z as u8, "pz": S.primary_covered.load(Ordering::SeqCst) as u8})
+                   "ap": (peak * 1000.0).round() / 1000.0, "z": z as u8, "pz": S.primary_covered.load(Ordering::SeqCst) as u8,
+                   "y": S.yielding.load(Ordering::SeqCst) as u8})
         ));
         s.write_all(out.as_bytes())?;
         s.flush()?;

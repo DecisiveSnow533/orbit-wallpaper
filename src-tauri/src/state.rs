@@ -121,6 +121,8 @@ pub struct Shared {
     pub covered_map: Mutex<HashMap<i32, bool>>,
     /// il monitor principale è coperto da finestre (indipendente da «pauseCovered»): serve agli schermi secondari
     pub primary_covered: AtomicBool,
+    /// Orbit si è messo da parte: c'è un gioco o un film a schermo intero (modalità Bilanciata o Risparmio)
+    pub yielding: AtomicBool,
     pub wall_enabled: AtomicBool,
     pub wall_state: Mutex<String>,
     pub clients: AtomicI64,
@@ -151,6 +153,7 @@ pub static S: LazyLock<Shared> = LazyLock::new(|| Shared {
     covered: AtomicBool::new(false),
     covered_map: Mutex::new(HashMap::new()),
     primary_covered: AtomicBool::new(false),
+    yielding: AtomicBool::new(false),
     wall_enabled: AtomicBool::new(true),
     wall_state: Mutex::new("avvio".into()),
     clients: AtomicI64::new(0),

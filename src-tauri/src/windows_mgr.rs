@@ -3,7 +3,7 @@ use crate::desktop::{self, Monitor};
 use crate::state::{cfg_bool, cfg_str, log, url, S};
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
@@ -77,10 +77,27 @@ fn set_rendering(w: &WebviewWindow, on: bool) {
     });
 }
 
+/// Priorità del processo: «sotto la norma» nelle modalità Bilanciata e Risparmio, così giochi e altre app
+/// pesanti hanno la precedenza sul processore. I processi di WebView2 avviati dopo la ereditano.
+fn set_priority(low: bool) {
+    use windows::Win32::System::Threading::{GetCurrentProcess, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS};
+    unsafe {
+        let _ = SetPriorityClass(GetCurrentProcess(), if low { BELOW_NORMAL_PRIORITY_CLASS } else { NORMAL_PRIORITY_CLASS });
+    }
+}
+
 pub fn thread(app: AppHandle) {
     let mut walls: HashMap<i32, Wall> = HashMap::new();
     let mut drawing: HashMap<i32, bool> = HashMap::new(); // stato del disegno per ogni monitor
+    let mut last_fs: Option<std::time::Instant> = None; // ultimo momento con un gioco o un film a schermo intero
+    let mut last_low: Option<bool> = None; // priorità impostata
     loop {
+        // prima di creare le finestre: così anche i processi di WebView2 nascono con la priorità giusta
+        let low = cfg_str("perfMode") != "quality";
+        if last_low != Some(low) {
+            set_priority(low);
+            last_low = Some(low);
+        }
         let t = targets();
         let want: Vec<i32> = t.iter().map(|m| m.i).collect();
         // monitor non più richiesti
@@ -94,11 +111,21 @@ pub fn thread(app: AppHandle) {
             }
         }
         let pc = cfg_bool("pauseCovered", true);
+        // modalità: con un gioco o un film a schermo intero (Bilanciata e Risparmio) Orbit si ferma su tutti gli schermi.
+        // Entra subito, esce 1,5 s dopo: un Alt+Tab veloce non fa ripartire e rifermare tutto.
+        let fs = cfg_str("perfMode") != "quality" && cfg_bool("yieldFullscreen", true) && desktop::fullscreen_app();
+        if fs {
+            last_fs = Some(Instant::now());
+        }
+        let yielding = fs || last_fs.is_some_and(|t| t.elapsed() < Duration::from_millis(1500));
+        if yielding != S.yielding.swap(yielding, Ordering::SeqCst) {
+            log(if yielding { "gioco o film a schermo intero: Orbit in pausa" } else { "schermo intero finito: Orbit riparte" });
+        }
         // copertura grezza, senza «pauseCovered»: una sola chiamata per monitor a ogni giro
         let raw: HashMap<i32, bool> = t.iter().map(|m| (m.i, desktop::covered(m))).collect();
-        let cm: HashMap<i32, bool> = raw.iter().map(|(i, c)| (*i, pc && *c)).collect();
-        // il principale coperto, anche se «pauseCovered» è spento (per gli schermi secondari)
-        let primary_cov = if S.wall_enabled.load(Ordering::SeqCst) && cfg_str("monitor") == "all" {
+        let cm: HashMap<i32, bool> = raw.iter().map(|(i, c)| (*i, yielding || (pc && *c))).collect();
+        // il principale coperto, anche se «pauseCovered» è spento (per gli schermi secondari); mai durante la pausa per i giochi
+        let primary_cov = if !yielding && S.wall_enabled.load(Ordering::SeqCst) && cfg_str("monitor") == "all" {
             desktop::monitors()
                 .iter()
                 .find(|m| m.primary)

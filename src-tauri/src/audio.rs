@@ -85,6 +85,11 @@ fn session() -> Result<(), String> {
     let mut last_check = Instant::now();
     loop {
         std::thread::sleep(Duration::from_millis(16));
+        // gioco o film a schermo intero: nessuno guarda, niente analisi dello spettro
+        if S.yielding.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(250));
+            continue;
+        }
         let (buf, age, peak) = {
             let mut r = ring.lock().unwrap();
             let age = r.last.elapsed().as_secs_f32();
